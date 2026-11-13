@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AuthState, Member, Settings, UpdaterStatus } from '@shared/types'
-import { fmtDate, useAction } from '../lib'
+import { useAction } from '../lib'
 
 const UPD: Record<UpdaterStatus['state'], string> = {
   dev: 'Modo desenvolvimento (atualização automática só funciona no app instalado)',
@@ -167,7 +167,7 @@ function Equipe({ auth }: { auth: AuthState }) {
             <div>
               <b>{m.name || m.email}</b>
               <small className="muted">
-                {m.email} • desde {fmtDate(m.createdAt).split(' ')[0]}
+                {m.email} • desde {new Date(m.createdAt).toLocaleDateString('pt-BR')}
               </small>
             </div>
             <span className={`badge ${m.admin ? 'running' : ''}`}>{m.admin ? 'Admin' : 'Operador'}</span>

@@ -9,7 +9,7 @@
  * o código e o instalador são públicos.
  */
 export const SUPABASE_URL = 'https://qplrsedwvdxlkiiwkyli.supabase.co'
-export const SUPABASE_KEY = ''
+export const SUPABASE_KEY = 'sb_publishable_j2qFzrmnpS5ssIXNkVEu2A__EV05TKv'
 
 /** Bucket privado do Storage com as mídias das campanhas. */
 export const MEDIA_BUCKET = 'midias'
