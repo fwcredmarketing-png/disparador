@@ -1,0 +1,36 @@
+appId: com.interno.sistemadisparo
+productName: Sistema de Disparo
+copyright: Uso interno
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+
+npmRebuild: false
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: SistemaDeDisparo-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Sistema de Disparo
+
+# ===== ATUALIZAÇÃO AUTOMÁTICA =====
+# O dono/nome do repositório são detectados automaticamente pelo remote "origin" do git.
+# As versões são publicadas em GitHub Releases e o app instalado baixa sozinho.
+publish:
+  provider: github
+  releaseType: release

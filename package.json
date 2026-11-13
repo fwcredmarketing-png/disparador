@@ -1,0 +1,50 @@
+{
+  "name": "sistema-disparo",
+  "productName": "Sistema de Disparo",
+  "version": "1.0.0",
+  "description": "Sistema interno de disparo de mensagens no WhatsApp com interface 3D",
+  "main": "./out/main/index.js",
+  "author": "Equipe Interna",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "electron-vite build && electron-builder --win --publish never",
+    "release": "electron-vite build && electron-builder --win --publish always",
+    "lancar-versao": "npm version patch -m \"release: v%s\" && git push --follow-tags",
+    "lancar-versao:minor": "npm version minor -m \"release: v%s\" && git push --follow-tags",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "electron-updater": "^6.8.11",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@types/node": "^26.6.6",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "allowScripts": {
+    "@whiskeysockets/baileys@7.0.0-rc14": true,
+    "protobufjs@7.6.6": true,
+    "electron-winstaller@5.4.0": true
+  }
+}
