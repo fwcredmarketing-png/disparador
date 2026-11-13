@@ -19,6 +19,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "electron-updater": "^6.8.11",
     "pino": "^10.4.0",

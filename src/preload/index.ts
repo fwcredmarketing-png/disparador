@@ -13,6 +13,18 @@ const on = <T>(ch: string, cb: (d: T) => void) => {
 
 const api: Api = {
   appVersion: () => invoke('app:version'),
+  auth: {
+    state: () => invoke('auth:state'),
+    login: (email, password) => invoke('auth:login', email, password),
+    logout: () => invoke('auth:logout'),
+    retry: () => invoke('auth:retry'),
+    onChange: (cb) => on('auth:changed', cb)
+  },
+  team: {
+    list: () => invoke('team:list'),
+    add: (m) => invoke('team:add', m),
+    remove: (email) => invoke('team:remove', email)
+  },
   settings: {
     get: () => invoke('settings:get'),
     save: (s) => invoke('settings:save', s)
@@ -36,6 +48,7 @@ const api: Api = {
   },
   campaigns: {
     list: () => invoke('campaigns:list'),
+    log: (id) => invoke('campaigns:log', id),
     create: (c) => invoke('campaigns:create', c),
     start: (id) => invoke('campaigns:start', id),
     pause: (id) => invoke('campaigns:pause', id),

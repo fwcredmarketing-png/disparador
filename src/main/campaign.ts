@@ -1,35 +1,50 @@
 import { EventEmitter } from 'events'
-import type { Campaign, CampaignInput, CampaignSummary } from '@shared/types'
-import { store } from './store'
-import { randomBetween, renderMessage, uid } from './utils'
+import type { CampaignInput, CampaignStatus, CampaignSummary, ResultStatus } from '@shared/types'
+import { campaigns as repo, contacts, media, stats } from './repo'
+import { getSettings } from './settings'
+import { randomBetween, renderMessage } from './utils'
 import { InvalidNumberError } from './whatsapp/provider'
 import type { WhatsAppManager } from './whatsapp/manager'
 
-export function summarize(c: Campaign): CampaignSummary {
-  const { results, ...rest } = c
-  const count = (s: string) => results.filter((r) => r.status === s).length
-  return {
-    ...rest,
-    total: results.length,
-    sent: count('sent'),
-    failed: count('failed'),
-    invalid: count('invalid'),
-    skipped: count('skipped'),
-    pending: count('pending'),
-    recent: results
-      .filter((r) => r.status !== 'pending')
-      .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
-      .slice(0, 30)
+type Stop = 'pause' | 'cancel' | 'lost' | null
+type Final = { status: CampaignStatus; note?: string } | null
+
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+/** Repete operações no banco quando a internet oscila. */
+async function retry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (i >= tries) throw e
+      await wait(1500 * i)
+    }
   }
+}
+
+const COUNTER: Record<Exclude<ResultStatus, 'pending'>, 'sent' | 'failed' | 'invalid' | 'skipped'> = {
+  sent: 'sent',
+  failed: 'failed',
+  invalid: 'invalid',
+  skipped: 'skipped'
 }
 
 /**
  * Motor de disparo: envia uma mensagem por vez, com intervalos aleatórios,
- * pausas entre lotes, limite diário e respeito ao descadastro (opt-out).
+ * pausas entre lotes, limite diário por número e respeito ao descadastro.
+ *
+ * Os dados ficam no banco compartilhado. Uma trava garante que só um computador
+ * envia cada campanha; ele manda um "sinal" periódico e recebe pedidos de
+ * pausa/cancelamento feitos em outros computadores.
  */
 export class CampaignEngine extends EventEmitter {
   private runningId: string | null = null
-  private stopRequested: 'pause' | 'cancel' | null = null
+  private runPromise: Promise<void> | null = null
+  private stop: Stop = null
+  private note: string | undefined
+  private current: CampaignSummary | null = null
+  private nextSendAt: number | undefined
 
   constructor(private wa: WhatsAppManager) {
     super()
@@ -39,174 +54,243 @@ export class CampaignEngine extends EventEmitter {
     return this.runningId
   }
 
-  private find(id: string): Campaign {
-    const c = store.data.campaigns.find((x) => x.id === id)
-    if (!c) throw new Error('Campanha não encontrada')
-    return c
+  get runningName(): string | undefined {
+    return this.current?.name
   }
 
-  private progress(c: Campaign): void {
-    store.save()
-    this.emit('progress', summarize(c))
+  /** Para a campanha que roda aqui, o estado em memória é mais atual que o do banco. */
+  decorate(c: CampaignSummary): CampaignSummary {
+    if (c.id !== this.runningId || !this.current) return c
+    return { ...this.current, nextSendAt: this.nextSendAt }
   }
 
-  create(input: CampaignInput): CampaignSummary {
+  private emitProgress(): void {
+    if (this.current) this.emit('progress', { ...this.current, nextSendAt: this.nextSendAt })
+  }
+
+  async create(input: CampaignInput): Promise<CampaignSummary> {
     if (!input.name?.trim()) throw new Error('Dê um nome para a campanha')
     if (!input.message?.trim() && !input.mediaPath && !input.template?.name)
       throw new Error('Escreva a mensagem ou anexe uma mídia')
-    const tag = input.tag?.trim()
-    const contacts = store.data.contacts.filter((c) => !c.optOut && (!tag || c.tags.includes(tag)))
-    if (!contacts.length) throw new Error('Nenhum contato disponível para essa campanha')
+    const tag = input.tag?.trim() || undefined
+    const list = await contacts.forCampaign(tag)
+    if (!list.length) throw new Error('Nenhum contato disponível para essa campanha')
 
-    const c: Campaign = {
-      ...input,
-      id: uid(),
-      name: input.name.trim(),
-      delayMin: Math.max(3, Number(input.delayMin) || 3),
-      delayMax: Math.max(Number(input.delayMin) || 3, Number(input.delayMax) || 3),
-      batchSize: Math.max(0, Math.floor(Number(input.batchSize) || 0)),
-      batchPause: Math.max(0, Number(input.batchPause) || 0),
-      status: 'draft',
-      createdAt: Date.now(),
-      results: contacts.map((ct) => ({ contactId: ct.id, phone: ct.phone, name: ct.name, status: 'pending' }))
+    const delayMin = Math.max(3, Math.floor(Number(input.delayMin) || 3))
+    const id = await repo.insert({
+      nome: input.name.trim(),
+      mensagem: input.message ?? '',
+      etiqueta: tag ?? null,
+      intervalo_min: delayMin,
+      intervalo_max: Math.max(delayMin, Math.floor(Number(input.delayMax) || delayMin)),
+      lote_tamanho: Math.max(0, Math.floor(Number(input.batchSize) || 0)),
+      lote_pausa: Math.max(0, Number(input.batchPause) || 0),
+      template: input.template?.name ? input.template : null
+    })
+    try {
+      if (input.mediaPath) {
+        const m = await media.upload(id, input.mediaPath)
+        await repo.setMedia(id, m.key, m.name)
+      }
+      await repo.insertSends(id, list)
+    } catch (e) {
+      await repo.remove(id).catch(() => {})
+      throw e
     }
-    store.data.campaigns.unshift(c)
-    store.save()
-    return summarize(c)
+    return repo.get(id)
   }
 
-  start(id: string): void {
-    const c = this.find(id)
-    if (this.runningId && this.runningId !== id) throw new Error('Já existe outra campanha em andamento')
+  async start(id: string): Promise<void> {
     if (this.runningId === id) return
-    if (c.status === 'done' || c.status === 'cancelled') throw new Error('Essa campanha já foi finalizada')
+    if (this.runningId) throw new Error('Este computador já está enviando outra campanha')
     if (!this.wa.isConnected()) throw new Error('Conecte o WhatsApp antes de iniciar')
+    const c = await repo.get(id)
+    if (c.status === 'done' || c.status === 'cancelled') throw new Error('Essa campanha já foi finalizada')
+    if (c.status === 'running' && !c.stale && !c.runningHere)
+      throw new Error(`Essa campanha já está sendo enviada em ${c.runningOn}`)
+    if (!(await repo.claim(id))) throw new Error('Outro computador iniciou essa campanha agora há pouco')
 
-    c.status = 'running'
-    c.note = undefined
-    c.startedAt ??= Date.now()
     this.runningId = id
-    this.stopRequested = null
-    this.progress(c)
-
-    this.loop(c)
-      .catch((e) => {
-        c.status = 'paused'
-        c.note = `Erro: ${(e as Error).message}`
-      })
-      .finally(() => {
-        this.runningId = null
-        c.nextSendAt = undefined
-        this.progress(c)
-      })
+    this.stop = null
+    this.note = undefined
+    this.nextSendAt = undefined
+    this.current = await repo.get(id)
+    this.emitProgress()
+    this.runPromise = this.run(id)
   }
 
-  pause(id: string): void {
-    const c = this.find(id)
-    if (this.runningId === id) this.stopRequested = 'pause'
-    else if (c.status === 'running') c.status = 'paused'
-    this.progress(c)
-  }
-
-  cancel(id: string): void {
-    const c = this.find(id)
-    if (this.runningId === id) this.stopRequested = 'cancel'
-    else {
-      c.status = 'cancelled'
-      c.finishedAt = Date.now()
+  async pause(id: string): Promise<void> {
+    if (this.runningId === id) {
+      this.stop ??= 'pause'
+      return
     }
-    this.progress(c)
+    await repo.control(id, 'pause')
   }
 
-  remove(id: string): void {
+  async cancel(id: string): Promise<void> {
+    if (this.runningId === id) {
+      this.stop = 'cancel'
+      return
+    }
+    await repo.control(id, 'cancel')
+  }
+
+  async remove(id: string): Promise<void> {
     if (this.runningId === id) throw new Error('Pause a campanha antes de excluir')
-    store.data.campaigns = store.data.campaigns.filter((c) => c.id !== id)
-    store.save()
+    const c = await repo.get(id)
+    if (c.status === 'running' && !c.stale)
+      throw new Error(`Essa campanha está sendo enviada em ${c.runningOn}. Pause antes de excluir.`)
+    await repo.remove(id)
   }
 
-  /** Espera interrompível (pausar/cancelar responde imediatamente). */
-  private async sleep(ms: number, c: Campaign): Promise<void> {
-    c.nextSendAt = Date.now() + ms
-    this.progress(c)
-    const end = Date.now() + ms
-    while (Date.now() < end && !this.stopRequested) {
-      await new Promise((r) => setTimeout(r, Math.min(250, end - Date.now())))
+  /** Ao fechar o sistema: pausa a campanha e libera a trava. */
+  async shutdown(): Promise<void> {
+    const id = this.runningId
+    if (!id) return
+    this.note = 'Pausada porque o sistema foi fechado'
+    this.stop = 'pause'
+    await Promise.race([this.runPromise, wait(4000)])
+    if (this.runningId === id) await repo.finish(id, 'paused', this.note).catch(() => {})
+  }
+
+  private async run(id: string): Promise<void> {
+    let final: Final
+    try {
+      final = await this.loop(id)
+    } catch (e) {
+      final = { status: 'paused', note: `Erro: ${(e as Error).message}` }
     }
-    c.nextSendAt = undefined
+    if (final) {
+      const f = final
+      await retry(() => repo.finish(id, f.status, f.note)).catch(() => {})
+    }
+    this.runningId = null
+    this.nextSendAt = undefined
+    this.current = null
+    this.runPromise = null
+    try {
+      this.emit('progress', await repo.get(id))
+    } catch {
+      /* sem conexão: a lista atualiza na próxima consulta */
+    }
   }
 
-  private async loop(c: Campaign): Promise<void> {
-    const settings = () => store.getSettings()
+  /** Sinal de vida + recebe pedidos de outros computadores. */
+  private async beat(id: string): Promise<void> {
+    try {
+      const cmd = await repo.heartbeat(id, this.nextSendAt)
+      if (cmd === 'lost') this.stop = 'lost'
+      else if (cmd === 'cancel') this.stop = 'cancel'
+      else if (cmd === 'pause' && !this.stop) {
+        this.stop = 'pause'
+        this.note = 'Pausada por outro computador'
+      }
+    } catch {
+      /* internet instável: tenta de novo no próximo sinal */
+    }
+  }
+
+  /** Espera interrompível (pausar/cancelar responde na hora). */
+  private async sleep(ms: number, id: string): Promise<void> {
+    this.nextSendAt = Date.now() + ms
+    await this.beat(id)
+    this.emitProgress()
+    const end = this.nextSendAt
+    let lastBeat = Date.now()
+    while (Date.now() < end && !this.stop) {
+      await wait(Math.min(250, Math.max(0, end - Date.now())))
+      if (Date.now() - lastBeat >= 20_000) {
+        lastBeat = Date.now()
+        await this.beat(id)
+      }
+    }
+    this.nextSendAt = undefined
+  }
+
+  private async mark(sendId: number, status: Exclude<ResultStatus, 'pending'>, error?: string, sender?: string) {
+    await retry(() => repo.mark(sendId, { status, error, sender }))
+    if (this.current) {
+      this.current.pending = Math.max(0, this.current.pending - 1)
+      this.current[COUNTER[status]]++
+    }
+    this.emitProgress()
+  }
+
+  private async loop(id: string): Promise<Final> {
+    const camp = await repo.row(id)
+    const mediaPath = camp.midia_caminho ? await media.download(camp.midia_caminho) : undefined
+    const sender = this.wa.status().me ?? ''
+    let sentToday = sender ? await stats.sentToday(sender) : 0
     let inBatch = 0
+    let exhausted = false
 
-    for (const r of c.results) {
-      if (this.stopRequested) break
-      if (r.status !== 'pending') continue
-
-      const contact = store.data.contacts.find((x) => x.id === r.contactId)
-      if (!contact || contact.optOut) {
-        r.status = 'skipped'
-        r.error = contact ? 'Contato descadastrado' : 'Contato removido'
-        r.at = Date.now()
-        this.progress(c)
-        continue
-      }
-      if (store.sentToday() >= settings().dailyLimit) {
-        c.note = `Limite diário de ${settings().dailyLimit} envios atingido. Continue amanhã.`
-        this.stopRequested = 'pause'
+    outer: while (!this.stop) {
+      const batch = await retry(() => repo.pending(id, 25))
+      if (!batch.length) {
+        exhausted = true
         break
       }
-      if (!this.wa.isConnected()) {
-        c.note = 'WhatsApp desconectado. Reconecte e continue a campanha.'
-        this.stopRequested = 'pause'
-        break
-      }
+      for (const r of batch) {
+        await this.beat(id)
+        if (this.stop) break outer
 
-      const s = settings()
-      let text = renderMessage(c.message || '', contact)
-      if (s.appendOptOut && s.optOutText && text) text += `\n\n_${s.optOutText}_`
+        const contact = r.contato_id ? await retry(() => contacts.get(r.contato_id!)) : null
+        if (!contact || contact.descadastrado) {
+          await this.mark(r.id, 'skipped', contact ? 'Contato descadastrado' : 'Contato removido')
+          continue
+        }
+        const s = getSettings()
+        if (sentToday >= s.dailyLimit) {
+          this.note = `Limite diário de ${s.dailyLimit} envios deste número atingido. Continue amanhã.`
+          this.stop = 'pause'
+          break outer
+        }
+        if (!this.wa.isConnected()) {
+          this.note = 'WhatsApp desconectado. Reconecte e continue a campanha.'
+          this.stop = 'pause'
+          break outer
+        }
 
-      try {
-        await this.wa.send(contact.phone, {
-          text,
-          mediaPath: c.mediaPath,
-          template: c.template?.name
-            ? { ...c.template, params: [contact.name.split(/\s+/)[0] || contact.name] }
-            : undefined
-        })
-        r.status = 'sent'
-        r.error = undefined
-        store.incSent()
-        this.emit('sent')
-      } catch (e) {
-        r.status = e instanceof InvalidNumberError ? 'invalid' : 'failed'
-        r.error = (e as Error).message
-      }
-      r.at = Date.now()
-      this.progress(c)
+        let text = renderMessage(camp.mensagem || '', { name: contact.nome, phone: contact.telefone })
+        if (s.appendOptOut && s.optOutText && text) text += `\n\n_${s.optOutText}_`
 
-      if (!c.results.some((x) => x.status === 'pending')) break
-      if (r.status === 'invalid') continue // número inválido: segue sem esperar muito
+        let status: 'sent' | 'failed' | 'invalid' = 'sent'
+        let error: string | undefined
+        try {
+          await this.wa.send(contact.telefone, {
+            text,
+            mediaPath,
+            template: camp.template?.name
+              ? { ...camp.template, params: [contact.nome.split(/\s+/)[0] || contact.nome] }
+              : undefined
+          })
+          sentToday++
+        } catch (e) {
+          status = e instanceof InvalidNumberError ? 'invalid' : 'failed'
+          error = (e as Error).message
+        }
+        await this.mark(r.id, status, error, sender)
+        if (status === 'sent') this.emit('sent')
 
-      inBatch++
-      if (c.batchSize > 0 && inBatch >= c.batchSize) {
-        inBatch = 0
-        await this.sleep(c.batchPause * 60_000, c)
-      } else {
-        await this.sleep(randomBetween(c.delayMin, c.delayMax) * 1000, c)
+        if (this.current && this.current.pending === 0) {
+          exhausted = true
+          break outer
+        }
+        if (status === 'invalid') continue // número sem WhatsApp: segue sem esperar
+
+        inBatch++
+        if (camp.lote_tamanho > 0 && inBatch >= camp.lote_tamanho) {
+          inBatch = 0
+          await this.sleep(Number(camp.lote_pausa) * 60_000, id)
+        } else {
+          await this.sleep(randomBetween(camp.intervalo_min, camp.intervalo_max) * 1000, id)
+        }
       }
     }
 
-    if (this.stopRequested === 'cancel') {
-      c.status = 'cancelled'
-      c.finishedAt = Date.now()
-    } else if (!c.results.some((x) => x.status === 'pending')) {
-      c.status = 'done'
-      c.finishedAt = Date.now()
-      c.note = undefined
-    } else {
-      c.status = 'paused'
-    }
-    this.stopRequested = null
+    if (this.stop === 'lost') return null // outro computador assumiu: não mexe mais
+    if (this.stop === 'cancel') return { status: 'cancelled' }
+    if (exhausted && !this.stop) return { status: 'done' }
+    return { status: 'paused', note: this.note }
   }
 }

@@ -13,6 +13,7 @@ atualização automática pelo GitHub.
 | WhatsApp (QR Code) | **Baileys**: conexão direta por WebSocket, sem navegador embutido |
 | WhatsApp (oficial) | **Meta WhatsApp Cloud API** |
 | Build | **electron-vite** (Vite) + **electron-builder** (instalador NSIS) |
+| Banco de dados | **Supabase** (Postgres + login + Storage), protegido por RLS |
 | Atualizações | **electron-updater** + **GitHub Releases** + **GitHub Actions** |
 
 ## Funcionalidades
@@ -26,7 +27,10 @@ atualização automática pelo GitHub.
   - intervalo aleatório entre envios, lotes com pausa e limite diário;
   - pausar, continuar e cancelar, com log em tempo real e relatório em CSV.
 - **Descadastro automático**: quem responder "SAIR" ou "PARAR" deixa de receber (as palavras são configuráveis).
-- **Segurança**: o token da API é criptografado (Windows DPAPI), e a sessão e os dados ficam só no computador. Nada disso vai para o GitHub.
+- **Equipe**: login por e-mail e senha; contatos, campanhas e relatórios são compartilhados entre todos os computadores.
+  Uma trava garante que cada campanha seja enviada por um computador só; se ele parar de responder, outro pode assumir.
+- **Segurança**: só quem está logado **e** foi liberado na equipe acessa o banco (RLS). A sessão do WhatsApp e o
+  token da API da Meta ficam em cada computador, criptografados (Windows DPAPI). Nada disso vai para o GitHub.
 
 ## Desenvolvimento (VS Code)
 
@@ -47,8 +51,12 @@ No VS Code também dá para apertar **F5** e escolher "Rodar Sistema (dev)".
 src/
   main/              Processo principal (Node.js)
     index.ts           janela, IPC, inicialização
-    store.ts           banco local em JSON (pasta AppData)
-    campaign.ts        motor de disparo (fila, intervalos, lotes, limites)
+    config.ts          endereço e chave PÚBLICA do Supabase
+    supabase.ts        conexão com o banco e login da equipe
+    repo.ts            consultas ao banco (contatos, campanhas, equipe, mídias)
+    settings.ts        configurações (equipe no banco + deste computador)
+    store.ts           dados deste computador (conexão do WhatsApp, sessão de login)
+    campaign.ts        motor de disparo (fila, intervalos, lotes, limites, trava)
     updater.ts         atualização automática via GitHub
     utils.ts           telefone, spintax, leitura de CSV
     whatsapp/
@@ -60,8 +68,26 @@ src/
     src/three/         cenas 3D (globo e barras)
     src/pages/         Painel, Conexão, Contatos, Campanhas, Configurações
   shared/types.ts    Tipos compartilhados
+supabase/migrations/ Estrutura do banco (SQL), aplicada uma vez no Supabase
 .github/workflows/   CI e publicação automática
 ```
+
+## Banco de dados (Supabase)
+
+A estrutura está em [supabase/migrations/](supabase/migrations/). Para mudar o banco no futuro,
+crie um novo arquivo `003_...sql` e rode no **SQL Editor** do Supabase.
+
+**Liberar uma pessoa na equipe** (são dois passos):
+
+1. No Supabase: **Authentication → Users → Add user → Create new user**, com o e-mail e uma senha
+   (marque **Auto Confirm User**).
+2. No sistema, logado como administrador: **Configurações → Equipe → Liberar acesso** com o mesmo e-mail.
+
+Quem tem usuário mas não foi liberado na equipe não consegue ver nada.
+Recomendado: em **Authentication → Sign In / Providers**, desligue **Allow new users to sign up**.
+
+> Em [src/main/config.ts](src/main/config.ts) vai somente a chave **pública** (anon/publishable).
+> **Nunca** coloque no código a senha do banco nem a chave secreta (`service_role` / `sb_secret_...`).
 
 ## Repositório
 
@@ -115,6 +141,8 @@ e um token pessoal no secret `GH_TOKEN` do workflow).
 
 ## Onde ficam os dados
 
-`%APPDATA%\Sistema de Disparo\`
-- `dados.json`: contatos, campanhas e configurações
-- `wa-auth\`: sessão do WhatsApp (para desconectar, apague essa pasta ou use "Sair da conta")
+- **No Supabase** (compartilhado pela equipe): contatos, campanhas, envios, configurações de envio, equipe e mídias.
+- **Em cada computador** (`%APPDATA%\Sistema de Disparo\`):
+  - `local.json`: tipo de conexão, token da API da Meta (criptografado) e sessão de login (criptografada)
+  - `wa-auth\`: sessão do WhatsApp (para desconectar, use "Sair da conta" na tela Conexão)
+  - `midias-cache\`: cópia local das mídias das campanhas

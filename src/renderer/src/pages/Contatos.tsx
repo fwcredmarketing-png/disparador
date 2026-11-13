@@ -4,7 +4,7 @@ import { fmtPhone, useAction, useToast } from '../lib'
 
 const PAGE = 200
 
-export default function Contatos() {
+export default function Contatos({ admin }: { admin: boolean }) {
   const run = useAction()
   const toast = useToast()
   const [list, setList] = useState<Contact[]>([])
@@ -14,7 +14,7 @@ export default function Contatos() {
   const [importTags, setImportTags] = useState('')
   const [limit, setLimit] = useState(PAGE)
 
-  const load = useCallback(() => window.api.contacts.list().then(setList), [])
+  const load = useCallback(() => run(() => window.api.contacts.list()).then((l) => l && setList(l)), [run])
   useEffect(() => {
     load()
     return window.api.contacts.onChanged(load)
@@ -66,16 +66,22 @@ export default function Contatos() {
             {list.length} contatos • {list.filter((c) => c.optOut).length} descadastrados
           </p>
         </div>
-        <button
-          className="btn danger ghost"
-          disabled={!list.length}
-          onClick={() =>
-            confirm('Apagar TODOS os contatos? Essa ação não pode ser desfeita.') &&
-            run(() => window.api.contacts.clear(), 'Contatos apagados').then(load)
-          }
-        >
-          Limpar tudo
-        </button>
+        <div className="row">
+          <button className="btn ghost" onClick={load} title="Buscar alterações feitas pela equipe">
+            ⟳ Atualizar
+          </button>
+          <button
+            className="btn danger ghost"
+            disabled={!list.length || !admin}
+            title={admin ? '' : 'Somente administradores'}
+            onClick={() =>
+              confirm('Apagar TODOS os contatos da equipe? Essa ação não pode ser desfeita.') &&
+              run(() => window.api.contacts.clear(), 'Contatos apagados').then(load)
+            }
+          >
+            Limpar tudo
+          </button>
+        </div>
       </header>
 
       <div className="grid-2">

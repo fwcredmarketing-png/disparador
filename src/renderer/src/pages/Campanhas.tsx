@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { CampaignInput, CampaignSummary, ResultStatus, WaStatus } from '@shared/types'
+import type { CampaignInput, CampaignResult, CampaignSummary, ResultStatus, WaStatus } from '@shared/types'
 import { fmtDate, fmtPhone, useAction } from '../lib'
 
 const STATUS: Record<CampaignSummary['status'], string> = {
@@ -54,22 +54,41 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   const [form, setForm] = useState<CampaignInput>(empty)
   const [creating, setCreating] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
+  const [log, setLog] = useState<CampaignResult[]>([])
+  const [saving, setSaving] = useState(false)
 
-  const load = useCallback(() => window.api.campaigns.list().then(setList), [])
+  const load = useCallback(() => window.api.campaigns.list().then(setList).catch(() => {}), [])
   useEffect(() => {
     load()
-    window.api.contacts.tags().then(setTags)
-    return window.api.campaigns.onProgress((c) =>
+    window.api.contacts.tags().then(setTags).catch(() => {})
+    const timer = setInterval(load, 10_000) // mostra o que outros computadores da equipe fizeram
+    const off = window.api.campaigns.onProgress((c) =>
       setList((l) => (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [c, ...l]))
     )
+    return () => {
+      clearInterval(timer)
+      off()
+    }
   }, [load])
+
+  // Log da campanha aberta: carrega ao abrir e sempre que o progresso muda
+  const opened = list.find((c) => c.id === open)
+  const progressKey = opened ? opened.total - opened.pending : 0
+  useEffect(() => {
+    if (!open) {
+      setLog([])
+      return
+    }
+    window.api.campaigns.log(open).then(setLog).catch(() => {})
+  }, [open, progressKey])
 
   const set = <K extends keyof CampaignInput>(k: K, v: CampaignInput[K]) => setForm((f) => ({ ...f, [k]: v }))
   const pv = useMemo(() => preview(form.message), [form.message])
   const insert = (v: string) => set('message', form.message + v)
 
   const create = async (start: boolean) => {
-    const c = await run(() => window.api.campaigns.create(form), 'Campanha criada')
+    setSaving(true)
+    const c = await run(() => window.api.campaigns.create(form), 'Campanha criada').finally(() => setSaving(false))
     if (!c) return
     setForm(empty)
     setCreating(false)
@@ -194,10 +213,10 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
           </div>
           <div className="row end">
             <span className="muted">Envie apenas para contatos que autorizaram receber mensagens.</span>
-            <button className="btn" onClick={() => create(false)}>
-              Salvar
+            <button className="btn" onClick={() => create(false)} disabled={saving}>
+              {saving ? 'Salvando…' : 'Salvar'}
             </button>
-            <button className="btn primary" onClick={() => create(true)} disabled={wa.state !== 'connected'}>
+            <button className="btn primary" onClick={() => create(true)} disabled={saving || wa.state !== 'connected'}>
               Salvar e iniciar ➤
             </button>
           </div>
@@ -215,10 +234,12 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                 <div>
                   <h3>{c.name}</h3>
                   <small className="muted">
-                    Criada {fmtDate(c.createdAt)} {c.tag ? `• etiqueta "${c.tag}"` : '• todos os contatos'}
+                    Criada {fmtDate(c.createdAt)}
+                    {c.createdBy ? ` por ${c.createdBy}` : ''} {c.tag ? `• etiqueta "${c.tag}"` : '• todos os contatos'}
+                    {c.mediaName ? ` • 📎 ${c.mediaName}` : ''}
                   </small>
                 </div>
-                <span className={`badge ${c.status}`}>{STATUS[c.status]}</span>
+                <span className={`badge ${c.stale ? 'paused' : c.status}`}>{c.stale ? 'Sem sinal' : STATUS[c.status]}</span>
               </div>
               <div className="progress">
                 <i style={{ width: `${pct}%` }} />
@@ -231,16 +252,23 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                 <span className="bad">✕ {c.failed} falhas</span>
                 <span className="warn">⊘ {c.invalid} sem WhatsApp</span>
                 <span className="muted">↷ {c.skipped} ignorados</span>
-                {c.status === 'running' && <Countdown at={c.nextSendAt} />}
+                {c.status === 'running' && !c.stale && <Countdown at={c.nextSendAt} />}
               </div>
+              {c.status === 'running' && !c.runningHere && c.runningOn && (
+                <div className={`tip ${c.stale ? 'warn' : ''}`}>
+                  {c.stale
+                    ? `O computador ${c.runningOn} parou de responder. Você pode assumir o envio daqui.`
+                    : `Enviando em ${c.runningOn}.`}
+                </div>
+              )}
               {c.note && <div className="tip warn">{c.note}</div>}
               <div className="row">
-                {(c.status === 'draft' || c.status === 'paused') && (
+                {(c.status === 'draft' || c.status === 'paused' || (c.status === 'running' && c.stale)) && (
                   <button className="btn primary" onClick={() => run(() => window.api.campaigns.start(c.id))}>
-                    ▶ {c.status === 'paused' ? 'Continuar' : 'Iniciar'}
+                    ▶ {c.stale ? 'Assumir envio' : c.status === 'paused' ? 'Continuar' : 'Iniciar'}
                   </button>
                 )}
-                {c.status === 'running' && (
+                {c.status === 'running' && !c.stale && (
                   <button className="btn" onClick={() => run(() => window.api.campaigns.pause(c.id))}>
                     ❚❚ Pausar
                   </button>
@@ -259,7 +287,7 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                 <button className="btn ghost" onClick={() => run(() => window.api.campaigns.exportReport(c.id))}>
                   Exportar CSV
                 </button>
-                {c.status !== 'running' && (
+                {(c.status !== 'running' || c.stale) && (
                   <button
                     className="btn ghost danger"
                     onClick={() => confirm('Excluir esta campanha?') && run(() => window.api.campaigns.remove(c.id)).then(load)}
@@ -270,9 +298,9 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
               </div>
               {open === c.id && (
                 <div className="log">
-                  {!c.recent.length && <div className="muted">Nenhum envio ainda.</div>}
-                  {c.recent.map((r, i) => (
-                    <div key={r.contactId + i} className={`log-row ${r.status}`}>
+                  {!log.length && <div className="muted">Nenhum envio ainda.</div>}
+                  {log.map((r, i) => (
+                    <div key={r.phone + i} className={`log-row ${r.status}`}>
                       <span>{r.at ? new Date(r.at).toLocaleTimeString('pt-BR') : ''}</span>
                       <span>{r.name || '—'}</span>
                       <span className="mono">{fmtPhone(r.phone)}</span>

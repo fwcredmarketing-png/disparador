@@ -13,6 +13,30 @@ export interface WaStatus {
   error?: string
 }
 
+// ---------- Login (Supabase Auth) ----------
+export interface AuthState {
+  /**
+   * checking: verificando a sessão salva
+   * notConfigured: falta a chave pública do Supabase no app
+   * signedOut: precisa fazer login
+   * signedIn: logado e liberado na equipe
+   * error: sem conexão com o banco (mostra "tentar de novo")
+   */
+  state: 'checking' | 'notConfigured' | 'signedOut' | 'signedIn' | 'error'
+  email?: string
+  name?: string
+  admin?: boolean
+  error?: string
+}
+
+export interface Member {
+  email: string
+  name: string
+  admin: boolean
+  createdAt: number
+}
+
+// ---------- Contatos ----------
 export interface Contact {
   id: string
   name: string
@@ -22,10 +46,10 @@ export interface Contact {
   createdAt: number
 }
 
+// ---------- Campanhas ----------
 export type ResultStatus = 'pending' | 'sent' | 'failed' | 'invalid' | 'skipped'
 
 export interface CampaignResult {
-  contactId: string
   phone: string
   name: string
   status: ResultStatus
@@ -43,7 +67,7 @@ export interface CloudTemplate {
 export interface CampaignInput {
   name: string
   message: string
-  mediaPath?: string
+  mediaPath?: string // arquivo local escolhido; é enviado para o Storage ao criar a campanha
   tag?: string // filtra contatos por etiqueta (vazio = todos)
   delayMin: number // segundos
   delayMax: number // segundos
@@ -52,51 +76,68 @@ export interface CampaignInput {
   template?: CloudTemplate // apenas API oficial
 }
 
-export interface Campaign extends CampaignInput {
+export interface CampaignSummary {
   id: string
+  name: string
+  message: string
+  mediaName?: string
+  tag?: string
+  delayMin: number
+  delayMax: number
+  batchSize: number
+  batchPause: number
+  template?: CloudTemplate
   status: CampaignStatus
   createdAt: number
+  createdBy?: string
   startedAt?: number
   finishedAt?: number
   note?: string
   nextSendAt?: number
-  results: CampaignResult[]
-}
-
-export interface CampaignSummary extends Omit<Campaign, 'results'> {
+  runningOn?: string // "operador (NOME-DO-PC)" que está enviando
+  runningHere: boolean // enviando neste computador
+  stale: boolean // marcada como enviando, mas o computador está sem sinal
   total: number
   sent: number
   failed: number
   invalid: number
   skipped: number
   pending: number
-  recent: CampaignResult[]
 }
 
-export interface Settings {
-  provider: ProviderKind
-  cloud: {
-    token: string
-    phoneNumberId: string
-    apiVersion: string
-  }
-  dailyLimit: number
+// ---------- Configurações ----------
+/** Configurações compartilhadas pela equipe (ficam no banco; só administradores alteram). */
+export interface SharedSettings {
+  dailyLimit: number // por número de WhatsApp
   optOutKeywords: string[]
   appendOptOut: boolean
   optOutText: string
   simulateTyping: boolean
 }
 
+/** Configurações deste computador (conexão do WhatsApp; o token fica criptografado localmente). */
+export interface LocalSettings {
+  provider: ProviderKind
+  cloud: {
+    token: string
+    phoneNumberId: string
+    apiVersion: string
+  }
+}
+
+export type Settings = SharedSettings & LocalSettings
+
 export interface Stats {
   totalContacts: number
   optOuts: number
-  sentToday: number
+  sentToday: number // do número conectado neste computador (ou da equipe, se desconectado)
   dailyLimit: number
-  totalSent: number
-  history: { date: string; count: number }[] // últimos 7 dias
+  totalSent: number // equipe toda
+  history: { date: string; count: number }[] // últimos 7 dias, equipe toda
   runningCampaign?: string
 }
 
+// ---------- Atualização automática ----------
 export type UpdaterState =
   | 'dev'
   | 'idle'
@@ -122,6 +163,18 @@ export interface ImportResult {
 
 export interface Api {
   appVersion(): Promise<string>
+  auth: {
+    state(): Promise<AuthState>
+    login(email: string, password: string): Promise<AuthState>
+    logout(): Promise<void>
+    retry(): Promise<AuthState>
+    onChange(cb: (s: AuthState) => void): () => void
+  }
+  team: {
+    list(): Promise<Member[]>
+    add(m: { email: string; name: string; admin: boolean }): Promise<void>
+    remove(email: string): Promise<void>
+  }
   settings: {
     get(): Promise<Settings>
     save(s: Partial<Settings>): Promise<Settings>
@@ -145,6 +198,7 @@ export interface Api {
   }
   campaigns: {
     list(): Promise<CampaignSummary[]>
+    log(id: string): Promise<CampaignResult[]>
     create(c: CampaignInput): Promise<CampaignSummary>
     start(id: string): Promise<void>
     pause(id: string): Promise<void>

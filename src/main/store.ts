@@ -1,25 +1,26 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { hostname } from 'os'
 import { join } from 'path'
-import type { Campaign, Contact, Settings } from '@shared/types'
-import { today } from './utils'
+import type { LocalSettings } from '@shared/types'
+import { uid } from './utils'
 
-interface DB {
-  version: number
-  settings: Settings
-  contacts: Contact[]
-  campaigns: Campaign[]
-  sent: Record<string, number> // data -> quantidade enviada
+/**
+ * Dados que pertencem a ESTE computador e não vão para o banco:
+ * conexão do WhatsApp, token da API da Meta e a sessão de login.
+ * Valores sensíveis são criptografados com o Windows (DPAPI).
+ */
+interface LocalData {
+  machineId: string
+  provider: LocalSettings['provider']
+  cloud: LocalSettings['cloud']
+  session: Record<string, string>
 }
 
-const defaultSettings: Settings = {
+const defaults: Omit<LocalData, 'machineId'> = {
   provider: 'baileys',
   cloud: { token: '', phoneNumberId: '', apiVersion: 'v21.0' },
-  dailyLimit: 300,
-  optOutKeywords: ['SAIR', 'PARAR', 'STOP', 'CANCELAR', 'DESCADASTRAR'],
-  appendOptOut: true,
-  optOutText: 'Responda SAIR para não receber mais mensagens.',
-  simulateTyping: true
+  session: {}
 }
 
 const ENC = 'enc:'
@@ -37,17 +38,17 @@ function decrypt(v: string): string {
   }
 }
 
-/** Banco de dados local em JSON, salvo na pasta de dados do usuário (não vai para o GitHub). */
-class Store {
+class LocalStore {
   readonly dir = app.getPath('userData')
   readonly authDir = join(this.dir, 'wa-auth')
-  private file = join(this.dir, 'dados.json')
+  readonly mediaCacheDir = join(this.dir, 'midias-cache')
+  private file = join(this.dir, 'local.json')
   private timer: NodeJS.Timeout | null = null
-  data!: DB
+  private data!: LocalData
 
   load(): void {
     if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true })
-    let raw: Partial<DB> = {}
+    let raw: Partial<LocalData> = {}
     if (existsSync(this.file)) {
       try {
         raw = JSON.parse(readFileSync(this.file, 'utf8'))
@@ -56,30 +57,26 @@ class Store {
       }
     }
     this.data = {
-      version: 1,
-      contacts: raw.contacts ?? [],
-      campaigns: raw.campaigns ?? [],
-      sent: raw.sent ?? {},
-      settings: {
-        ...defaultSettings,
-        ...(raw.settings ?? {}),
-        cloud: { ...defaultSettings.cloud, ...(raw.settings?.cloud ?? {}) }
-      }
-    }
-    // campanhas que estavam rodando quando o app fechou ficam pausadas
-    for (const c of this.data.campaigns) {
-      if (c.status === 'running') {
-        c.status = 'paused'
-        c.note = 'Pausada porque o sistema foi fechado'
-        c.nextSendAt = undefined
-      }
+      machineId: raw.machineId || uid(),
+      provider: raw.provider ?? defaults.provider,
+      cloud: { ...defaults.cloud, ...(raw.cloud ?? {}) },
+      session: raw.session ?? {}
     }
     this.flush()
   }
 
-  save(): void {
+  /** Identifica este computador na trava de campanhas. */
+  get machineId(): string {
+    return this.data.machineId
+  }
+
+  get machineName(): string {
+    return hostname()
+  }
+
+  private save(): void {
     if (this.timer) return
-    this.timer = setTimeout(() => this.flush(), 400)
+    this.timer = setTimeout(() => this.flush(), 300)
   }
 
   flush(): void {
@@ -90,32 +87,40 @@ class Store {
     renameSync(tmp, this.file)
   }
 
-  // ---------- Configurações ----------
-  getSettings(): Settings {
-    const s = this.data.settings
-    return { ...s, cloud: { ...s.cloud, token: decrypt(s.cloud.token) } }
+  getLocal(): LocalSettings {
+    return {
+      provider: this.data.provider,
+      cloud: { ...this.data.cloud, token: decrypt(this.data.cloud.token) }
+    }
   }
 
-  saveSettings(patch: Partial<Settings>): Settings {
-    const cur = this.getSettings()
-    const next: Settings = { ...cur, ...patch, cloud: { ...cur.cloud, ...(patch.cloud ?? {}) } }
-    next.dailyLimit = Math.max(1, Math.floor(Number(next.dailyLimit) || 1))
-    next.optOutKeywords = next.optOutKeywords.map((k) => k.trim().toUpperCase()).filter(Boolean)
-    this.data.settings = { ...next, cloud: { ...next.cloud, token: encrypt(next.cloud.token) } }
+  saveLocal(patch: Partial<LocalSettings>): LocalSettings {
+    const cur = this.getLocal()
+    const next: LocalSettings = {
+      provider: patch.provider ?? cur.provider,
+      cloud: { ...cur.cloud, ...(patch.cloud ?? {}) }
+    }
+    this.data.provider = next.provider
+    this.data.cloud = { ...next.cloud, token: encrypt(next.cloud.token) }
     this.save()
     return next
   }
 
-  // ---------- Contadores ----------
-  sentToday(): number {
-    return this.data.sent[today()] ?? 0
-  }
-
-  incSent(): void {
-    const k = today()
-    this.data.sent[k] = (this.data.sent[k] ?? 0) + 1
-    this.save()
+  /** Armazenamento da sessão de login do Supabase (criptografado). */
+  readonly authStorage = {
+    getItem: (k: string): string | null => {
+      const v = this.data.session[k]
+      return v ? decrypt(v) || null : null
+    },
+    setItem: (k: string, v: string): void => {
+      this.data.session[k] = encrypt(v)
+      this.flush()
+    },
+    removeItem: (k: string): void => {
+      delete this.data.session[k]
+      this.flush()
+    }
   }
 }
 
-export const store = new Store()
+export const store = new LocalStore()

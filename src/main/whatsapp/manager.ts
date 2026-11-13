@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import type { ProviderKind, WaStatus } from '@shared/types'
 import { store } from '../store'
+import { getSettings } from '../settings'
 import { BaileysProvider } from './baileys'
 import { CloudProvider } from './cloud'
 import type { IncomingMessage, SendContent, WaProvider } from './provider'
@@ -12,8 +13,8 @@ export class WhatsAppManager extends EventEmitter {
   constructor() {
     super()
     this.providers = {
-      baileys: new BaileysProvider(store.authDir, { simulateTyping: () => store.getSettings().simulateTyping }),
-      cloud: new CloudProvider(() => store.getSettings().cloud)
+      baileys: new BaileysProvider(store.authDir, { simulateTyping: () => getSettings().simulateTyping }),
+      cloud: new CloudProvider(() => getSettings().cloud)
     }
     for (const [kind, p] of Object.entries(this.providers)) {
       p.on('status', (s: WaStatus) => {
@@ -24,7 +25,7 @@ export class WhatsAppManager extends EventEmitter {
   }
 
   get kind(): ProviderKind {
-    return store.getSettings().provider
+    return getSettings().provider
   }
 
   get active(): WaProvider {

@@ -9,11 +9,11 @@ export default function Dashboard({ wa, go, signal }: { wa: WaStatus; go: (p: Pa
   const [s, setS] = useState<Stats | null>(null)
 
   useEffect(() => {
-    window.api.stats.get().then(setS)
+    window.api.stats.get().then(setS).catch(() => {})
   }, [signal])
 
   useEffect(() => {
-    const t = setInterval(() => window.api.stats.get().then(setS), 5000)
+    const t = setInterval(() => window.api.stats.get().then(setS).catch(() => {}), 10_000)
     return () => clearInterval(t)
   }, [])
 
@@ -33,7 +33,7 @@ export default function Dashboard({ wa, go, signal }: { wa: WaStatus; go: (p: Pa
 
       <div className="kpis">
         <div className="kpi glass">
-          <span>Enviadas hoje</span>
+          <span>{wa.state === 'connected' ? 'Enviadas hoje (este número)' : 'Enviadas hoje (equipe)'}</span>
           <strong>{s?.sentToday ?? '—'}</strong>
           <div className="meter">
             <i style={{ width: `${pct}%` }} />
@@ -50,7 +50,7 @@ export default function Dashboard({ wa, go, signal }: { wa: WaStatus; go: (p: Pa
         <div className="kpi glass">
           <span>Total enviado</span>
           <strong>{s?.totalSent ?? '—'}</strong>
-          <small>desde a instalação</small>
+          <small>toda a equipe</small>
         </div>
         <div className="kpi glass">
           <span>WhatsApp</span>

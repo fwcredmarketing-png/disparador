@@ -1,12 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
-import type { CampaignInput, Contact, Settings, Stats } from '@shared/types'
+import type { AuthState, CampaignInput, ImportResult, Settings, Stats } from '@shared/types'
 import { store } from './store'
-import { CampaignEngine, summarize } from './campaign'
+import { auth } from './supabase'
+import { campaigns, contacts, stats, team } from './repo'
+import { getSettings, refreshShared, saveSettings } from './settings'
+import { CampaignEngine } from './campaign'
 import { WhatsAppManager } from './whatsapp/manager'
 import { setupUpdater } from './updater'
-import { normalizePhone, normalizeText, parseContactsFile, today, uid } from './utils'
+import { normalizePhone, normalizeText, parseContactsFile } from './utils'
 
 let win: BrowserWindow | null = null
 
@@ -64,135 +67,146 @@ function bootstrap(): void {
 
   const send = (channel: string, data?: unknown) => win?.webContents.send(channel, data)
 
+  // ---------- Login ----------
+  auth.on('change', async (s: AuthState) => {
+    if (s.state === 'signedIn') {
+      // carrega as configurações da equipe e libera campanhas presas deste computador
+      await refreshShared().catch(() => {})
+      await campaigns.releaseMine().catch(() => {})
+    }
+    send('auth:changed', s)
+  })
+  auth.init()
+
   // ---------- Eventos para a interface ----------
   wa.on('status', (s) => send('wa:status', s))
   engine.on('progress', (c) => send('campaign:progress', c))
   engine.on('sent', () => send('campaign:sent'))
 
   // Descadastro automático: contato responde "SAIR"
-  wa.on('incoming', ({ phone, text }: { phone: string; text: string }) => {
-    const kw = store.getSettings().optOutKeywords
-    if (!kw.includes(normalizeText(text))) return
-    const c = store.data.contacts.find((x) => x.phone === phone || x.phone.endsWith(phone.slice(-10)))
-    if (c && !c.optOut) {
-      c.optOut = true
-      store.save()
-      send('contacts:changed')
+  wa.on('incoming', async ({ phone, text }: { phone: string; text: string }) => {
+    if (auth.current.state !== 'signedIn') return
+    if (!getSettings().optOutKeywords.includes(normalizeText(text))) return
+    try {
+      if (await contacts.optOutByPhone(phone)) send('contacts:changed')
+    } catch {
+      /* sem conexão com o banco: ignora */
     }
   })
 
-  // Reconecta automaticamente se já houver sessão salva
-  const s = store.getSettings()
-  if (s.provider === 'cloud' ? s.cloud.token && s.cloud.phoneNumberId : true) {
+  // Reconecta o WhatsApp automaticamente se já houver sessão salva neste computador
+  const local = store.getLocal()
+  if (local.provider === 'cloud' ? local.cloud.token && local.cloud.phoneNumberId : true) {
     wa.connect().catch(() => {})
   }
 
   // ---------- IPC ----------
-  const handle = (ch: string, fn: (...args: any[]) => unknown) => // eslint-disable-line @typescript-eslint/no-explicit-any
-    ipcMain.handle(ch, (_e, ...args) => fn(...args))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type Fn = (...args: any[]) => unknown
+  const handle = (ch: string, fn: Fn) => ipcMain.handle(ch, (_e, ...args) => fn(...args))
+  /** Canais que exigem login de um membro da equipe. */
+  const authed = (ch: string, fn: Fn) =>
+    handle(ch, (...args) => {
+      auth.require()
+      return fn(...args)
+    })
 
   handle('app:version', () => app.getVersion())
 
-  handle('settings:get', () => store.getSettings())
-  handle('settings:save', async (patch: Partial<Settings>) => {
-    const prev = store.getSettings()
+  handle('auth:state', () => auth.current)
+  handle('auth:login', (email: string, password: string) => auth.login(email, password))
+  handle('auth:retry', () => auth.restore())
+  handle('auth:logout', async () => {
+    if (engine.running) throw new Error('Pause a campanha em andamento antes de sair')
+    await auth.logout()
+  })
+
+  authed('team:list', () => team.list())
+  authed('team:add', (m: { email: string; name: string; admin: boolean }) => {
+    auth.requireAdmin()
+    return team.add(m)
+  })
+  authed('team:remove', (email: string) => {
+    auth.requireAdmin()
+    return team.remove(email)
+  })
+
+  authed('settings:get', () => refreshShared().catch(() => getSettings()))
+  authed('settings:save', async (patch: Partial<Settings>) => {
+    const prev = getSettings()
     if (patch.provider && patch.provider !== prev.provider && engine.running)
       throw new Error('Pause a campanha em andamento antes de trocar o tipo de conexão')
-    const next = store.saveSettings(patch)
+    const next = await saveSettings(patch)
     if (next.provider !== prev.provider) await wa.switchTo(prev.provider)
     return next
   })
 
-  handle('wa:status', () => wa.status())
-  handle('wa:connect', () => wa.connect())
-  handle('wa:disconnect', () => wa.disconnect())
-  handle('wa:logout', () => wa.logout())
+  authed('wa:status', () => wa.status())
+  authed('wa:connect', () => wa.connect())
+  authed('wa:disconnect', () => wa.disconnect())
+  authed('wa:logout', () => wa.logout())
 
-  handle('contacts:list', () => store.data.contacts)
-  handle('contacts:tags', () => [...new Set(store.data.contacts.flatMap((c) => c.tags))].sort())
-  handle('contacts:add', (input: { name: string; phone: string; tags: string[] }) => {
+  authed('contacts:list', () => contacts.list())
+  authed('contacts:tags', () => contacts.tags())
+  authed('contacts:add', (input: { name: string; phone: string; tags: string[] }) => {
     const phone = normalizePhone(input.phone)
     if (!phone) throw new Error('Telefone inválido')
-    if (store.data.contacts.some((c) => c.phone === phone)) throw new Error('Esse número já está cadastrado')
-    const c: Contact = {
-      id: uid(),
+    return contacts.add({
       name: input.name?.trim() ?? '',
       phone,
-      tags: (input.tags ?? []).map((t) => t.trim()).filter(Boolean),
-      optOut: false,
-      createdAt: Date.now()
-    }
-    store.data.contacts.unshift(c)
-    store.save()
-    return c
+      tags: [...new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))]
+    })
   })
-  handle('contacts:remove', (id: string) => {
-    store.data.contacts = store.data.contacts.filter((c) => c.id !== id)
-    store.save()
-  })
-  handle('contacts:clear', () => {
+  authed('contacts:remove', (id: string) => contacts.remove(id))
+  authed('contacts:clear', () => {
+    auth.requireAdmin()
     if (engine.running) throw new Error('Pause a campanha em andamento antes de limpar os contatos')
-    store.data.contacts = []
-    store.save()
+    return contacts.clear()
   })
-  handle('contacts:optout', (id: string, optOut: boolean) => {
-    const c = store.data.contacts.find((x) => x.id === id)
-    if (c) c.optOut = optOut
-    store.save()
-  })
-  handle('contacts:import', async (extraTags: string[]) => {
+  authed('contacts:optout', (id: string, optOut: boolean) => contacts.setOptOut(id, optOut))
+  authed('contacts:import', async (extraTags: string[]): Promise<ImportResult | null> => {
     const r = await dialog.showOpenDialog(win!, {
       title: 'Importar contatos',
       filters: [{ name: 'Planilha CSV / Texto', extensions: ['csv', 'txt'] }],
       properties: ['openFile']
     })
     if (r.canceled || !r.filePaths[0]) return null
-    const rows = parseContactsFile(await readFile(r.filePaths[0], 'utf8'))
-    const existing = new Set(store.data.contacts.map((c) => c.phone))
-    let added = 0
-    let duplicates = 0
-    let invalid = 0
+    const parsed = parseContactsFile(await readFile(r.filePaths[0], 'utf8'))
     const tags = (extraTags ?? []).map((t) => t.trim()).filter(Boolean)
-    for (const row of rows) {
+    const seen = new Set<string>()
+    const rows: { name: string; phone: string; tags: string[] }[] = []
+    let invalid = 0
+    for (const row of parsed) {
       const phone = normalizePhone(row.phone)
       if (!phone) {
         invalid++
         continue
       }
-      if (existing.has(phone)) {
-        duplicates++
-        continue
-      }
-      existing.add(phone)
-      store.data.contacts.push({
-        id: uid(),
-        name: row.name,
-        phone,
-        tags: [...new Set([...row.tags, ...tags])],
-        optOut: false,
-        createdAt: Date.now()
-      })
-      added++
+      if (seen.has(phone)) continue
+      seen.add(phone)
+      rows.push({ name: row.name, phone, tags: [...new Set([...row.tags, ...tags])] })
     }
-    store.save()
-    return { added, duplicates, invalid }
+    const added = await contacts.importRows(rows)
+    send('contacts:changed')
+    return { added, duplicates: parsed.length - invalid - added, invalid }
   })
 
-  handle('campaigns:list', () => store.data.campaigns.map(summarize))
-  handle('campaigns:create', (input: CampaignInput) => engine.create(input))
-  handle('campaigns:start', (id: string) => engine.start(id))
-  handle('campaigns:pause', (id: string) => engine.pause(id))
-  handle('campaigns:cancel', (id: string) => engine.cancel(id))
-  handle('campaigns:remove', (id: string) => engine.remove(id))
-  handle('campaigns:export', async (id: string) => {
-    const c = store.data.campaigns.find((x) => x.id === id)
-    if (!c) return false
+  authed('campaigns:list', async () => (await campaigns.list()).map((c) => engine.decorate(c)))
+  authed('campaigns:log', (id: string) => campaigns.log(id))
+  authed('campaigns:create', (input: CampaignInput) => engine.create(input))
+  authed('campaigns:start', (id: string) => engine.start(id))
+  authed('campaigns:pause', (id: string) => engine.pause(id))
+  authed('campaigns:cancel', (id: string) => engine.cancel(id))
+  authed('campaigns:remove', (id: string) => engine.remove(id))
+  authed('campaigns:export', async (id: string) => {
+    const c = await campaigns.get(id)
     const r = await dialog.showSaveDialog(win!, {
       title: 'Exportar relatório',
       defaultPath: `relatorio-${c.name.replace(/[^\w-]+/g, '_')}.csv`,
       filters: [{ name: 'CSV', extensions: ['csv'] }]
     })
     if (r.canceled || !r.filePath) return false
+    const results = await campaigns.allResults(id)
     const label: Record<string, string> = {
       pending: 'Pendente',
       sent: 'Enviado',
@@ -203,7 +217,7 @@ function bootstrap(): void {
     const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const lines = [
       'Nome;Telefone;Status;Detalhe;Data',
-      ...c.results.map((x) =>
+      ...results.map((x) =>
         [esc(x.name), x.phone, label[x.status], esc(x.error ?? ''), x.at ? new Date(x.at).toLocaleString('pt-BR') : ''].join(';')
       )
     ]
@@ -211,24 +225,13 @@ function bootstrap(): void {
     return true
   })
 
-  handle('stats:get', (): Stats => {
-    const history = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date()
-      d.setDate(d.getDate() - (6 - i))
-      const k = today(d)
-      return { date: k, count: store.data.sent[k] ?? 0 }
-    })
-    return {
-      totalContacts: store.data.contacts.length,
-      optOuts: store.data.contacts.filter((c) => c.optOut).length,
-      sentToday: store.sentToday(),
-      dailyLimit: store.getSettings().dailyLimit,
-      totalSent: Object.values(store.data.sent).reduce((a, b) => a + b, 0),
-      history,
-      runningCampaign: engine.running
-        ? store.data.campaigns.find((c) => c.id === engine.running)?.name
-        : undefined
-    }
+  authed('stats:get', async (): Promise<Stats> => {
+    const st = wa.status()
+    const [s, running] = await Promise.all([
+      stats.get(st.state === 'connected' ? st.me : undefined),
+      engine.runningName ? Promise.resolve(engine.runningName) : campaigns.runningName().catch(() => undefined)
+    ])
+    return { ...s, runningCampaign: running }
   })
 
   handle('dialog:media', async () => {
@@ -249,10 +252,15 @@ function bootstrap(): void {
     updater.install()
   })
 
-  app.on('before-quit', () => store.flush())
+  // Ao fechar: pausa a campanha em andamento e libera a trava no banco
+  let closing = false
+  app.on('before-quit', (e) => {
+    store.flush()
+    if (closing || !engine.running) return
+    e.preventDefault()
+    closing = true
+    engine.shutdown().finally(() => app.quit())
+  })
 }
 
-app.on('window-all-closed', () => {
-  store.flush()
-  app.quit()
-})
+app.on('window-all-closed', () => app.quit())
