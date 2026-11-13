@@ -29,8 +29,10 @@ nsis:
   shortcutName: Sistema de Disparo
 
 # ===== ATUALIZAÇÃO AUTOMÁTICA =====
-# O dono/nome do repositório são detectados automaticamente pelo remote "origin" do git.
-# As versões são publicadas em GitHub Releases e o app instalado baixa sozinho.
+# As versões são publicadas em GitHub Releases deste repositório (público)
+# e o app instalado baixa sozinho. Nunca coloque senhas ou tokens neste arquivo.
 publish:
   provider: github
+  owner: fwcredmarketing-png
+  repo: disparador
   releaseType: release

@@ -63,22 +63,13 @@ src/
 .github/workflows/   CI e publicação automática
 ```
 
-## Publicando no GitHub (primeira vez)
+## Repositório
 
-1. Crie um repositório no GitHub, por exemplo `sistema-disparo`.
-   Para a atualização automática funcionar sem token, **as Releases precisam ser públicas**, então o repositório deve ser público.
-   Se o código precisar ficar privado, veja a seção "Repositório privado" abaixo.
-2. No terminal do VS Code:
+- Código: https://github.com/fwcredmarketing-png/disparador (público, para a atualização automática funcionar sem token)
+- Instaladores: https://github.com/fwcredmarketing-png/disparador/releases
 
-```bash
-git add .
-git commit -m "versão inicial"
-git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/sistema-disparo.git
-git push -u origin main
-```
-
-3. No GitHub, vá em **Settings → Actions → General → Workflow permissions** e marque **Read and write permissions**.
+> **Nunca** coloque senhas, tokens ou chaves secretas no código: o repositório e os instaladores são públicos.
+> O workflow de Release já declara a permissão de escrita de que precisa (`permissions: contents: write`).
 
 ## Fluxo de atualização (o dia a dia)
 
