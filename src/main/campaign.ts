@@ -9,6 +9,7 @@ import type {
   ResultStatus
 } from '@shared/types'
 import type { SmsSender } from './sms'
+import { ehCelular, INTERVALO_CELULAR } from '@shared/sms'
 import { campaigns as repo, contacts, media, stats } from './repo'
 import { getSettings } from './settings'
 import { mediaInfo } from './media'
@@ -216,7 +217,9 @@ export class CampaignEngine extends EventEmitter {
     const list = await contacts.forCampaign(tag)
     if (!list.length) throw new Error('Nenhum contato disponível para essa campanha')
 
-    const delayMin = Math.max(3, Math.floor(Number(input.delayMin) || 3))
+    // SMS pelo celular Android: o Android segura o envio depois de ~30 SMS em 30 min; o mínimo fica abaixo disso
+    const minimo = molde.canal === 'sms' && ehCelular(getSettings().sms) ? INTERVALO_CELULAR : 3
+    const delayMin = Math.max(minimo, Math.floor(Number(input.delayMin) || minimo))
     const id = await repo
       .insert({
         nome: input.name.trim(),

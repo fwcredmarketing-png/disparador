@@ -158,10 +158,12 @@ export interface SharedSettings {
 
 /**
  * SMS por API externa: o sistema faz uma chamada HTTP ao provedor para cada mensagem.
- * Nos campos de texto, {{telefone}}, {{mensagem}}, {{token}}, {{remetente}} e {{bearer}} são trocados pelos valores.
+ * Nos campos de texto, {{telefone}}, {{mensagem}}, {{token}}, {{token_base64}}, {{remetente}} e {{bearer}}
+ * são trocados pelos valores ({{token_base64}} serve para login "Basic" com usuario:senha).
  */
 export interface SmsConfig {
-  preset: 'smsgo' | 'zenvia' | 'generico' // modelo usado para preencher os campos
+  /** modelo usado para preencher os campos (android_*: o próprio celular envia pelo chip, com o plano da operadora) */
+  preset: 'smsgo' | 'android_local' | 'android_nuvem' | 'zenvia' | 'generico'
   token: string // chave da API do provedor (fica criptografada neste computador)
   /**
    * Autenticação em 2 passos (opcional): antes de enviar, troca a chave por um token temporário

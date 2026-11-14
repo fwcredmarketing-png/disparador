@@ -14,6 +14,8 @@ function preencher(modelo: string, vars: Record<string, string>, escapar: (v: st
   return modelo.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k: string) => (k in vars ? escapar(vars[k]) : m))
 }
 const emJson = (v: string) => JSON.stringify(v).slice(1, -1)
+/** Para login "Basic": "usuario:senha" em base64. */
+const base64 = (v: string) => Buffer.from(v ?? '', 'utf8').toString('base64')
 
 function lerCabecalhos(texto: string, vars: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = {}
@@ -49,6 +51,7 @@ export function montarRequisicao(
     telefone: formatarTelefone(phone, c.phoneFormat),
     mensagem: c.stripAccents ? semAcentos(texto) : texto,
     token: c.token,
+    token_base64: base64(c.token),
     remetente: c.sender,
     bearer
   }
@@ -97,7 +100,7 @@ export class SmsSender {
     if (!c.authUrl?.trim()) return ''
     const chave = `${c.authUrl}|${c.token}`
     if (!renovar && this.bearer?.chave === chave && Date.now() < this.bearer.vence) return this.bearer.valor
-    const vars = { token: c.token, remetente: c.sender }
+    const vars = { token: c.token, token_base64: base64(c.token), remetente: c.sender }
     let res: Response
     try {
       res = await fetch(preencher(c.authUrl.trim(), vars, encodeURIComponent), {

@@ -23,6 +23,30 @@ export const SMS_PRESETS: Record<SmsConfig['preset'], Modelo> = {
     authField: 'token',
     authHours: 47 // o token vale 48 h; renova um pouco antes
   },
+  // Celular Android com o app "SMS Gateway for Android" (sms-gate.app): o SMS sai pelo chip do celular,
+  // usando o plano da operadora. Login Basic com o usuário e a senha que o app mostra.
+  android_local: {
+    nome: 'Meu celular Android — mesmo Wi-Fi (usa o plano)',
+    preset: 'android_local',
+    url: '',
+    method: 'POST',
+    headers: 'Authorization: Basic {{token_base64}}',
+    body: '{"textMessage": {"text": "{{mensagem}}"}, "phoneNumbers": ["{{telefone}}"]}',
+    bodyType: 'json',
+    phoneFormat: 'e164',
+    ...SEM_AUTH
+  },
+  android_nuvem: {
+    nome: 'Meu celular Android — pela internet (sms-gate.app)',
+    preset: 'android_nuvem',
+    url: 'https://api.sms-gate.app/3rdparty/v1/messages',
+    method: 'POST',
+    headers: 'Authorization: Basic {{token_base64}}',
+    body: '{"textMessage": {"text": "{{mensagem}}"}, "phoneNumbers": ["{{telefone}}"]}',
+    bodyType: 'json',
+    phoneFormat: 'e164',
+    ...SEM_AUTH
+  },
   zenvia: {
     nome: 'Zenvia',
     preset: 'zenvia',
@@ -65,7 +89,27 @@ export const trocarTipoSmsGo = (body: string, id: number): string =>
   RE_TIPO.test(body) ? body.replace(RE_TIPO, `$1${id}`) : body
 
 const usaToken = (c: SmsConfig) =>
-  [c.url, c.headers, c.body, c.authUrl, c.authHeaders].some((t) => /\{\{\s*token\s*\}\}/.test(t ?? ''))
+  [c.url, c.headers, c.body, c.authUrl, c.authHeaders].some((t) => /\{\{\s*token(_base64)?\s*\}\}/.test(t ?? ''))
+
+/** Celular Android: o envio sai pelo chip (o Android limita ~30 SMS a cada 30 min por app). */
+export const ehCelular = (c?: SmsConfig): boolean => c?.preset === 'android_local' || c?.preset === 'android_nuvem'
+/** Intervalo mínimo recomendado entre SMS pelo celular, em segundos (abaixo do limite do Android). */
+export const INTERVALO_CELULAR = 60
+
+/** Modo mesmo Wi-Fi: "192.168.0.15" vira "http://192.168.0.15:8080/message". */
+export const urlCelular = (ip: string): string => {
+  const limpo = ip.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+  if (!limpo) return ''
+  return `http://${limpo.includes(':') ? limpo : `${limpo}:8080`}/message`
+}
+export const ipDaUrl = (url: string): string =>
+  url.replace(/^https?:\/\//i, '').replace(/\/message$/, '').replace(/:8080$/, '')
+
+/** Usuário e senha do app do celular ficam juntos na chave, como "usuario:senha" (login Basic). */
+export const separarLogin = (token: string): { usuario: string; senha: string } => {
+  const i = token.indexOf(':')
+  return i < 0 ? { usuario: token, senha: '' } : { usuario: token.slice(0, i), senha: token.slice(i + 1) }
+}
 
 /** Configurado o suficiente para tentar enviar (endereço válido e, se os modelos usam a chave, a chave preenchida). */
 export const smsConfigurado = (c?: SmsConfig): boolean =>

@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { Settings, SmsConfig, WaOverview, WaRotation, WaStatus } from '@shared/types'
-import { lerTipoSmsGo, SMS_PRESETS, SMSGO_TIPOS, smsConfigurado, trocarTipoSmsGo } from '@shared/sms'
+import {
+  ehCelular,
+  INTERVALO_CELULAR,
+  ipDaUrl,
+  lerTipoSmsGo,
+  separarLogin,
+  SMS_PRESETS,
+  SMSGO_TIPOS,
+  smsConfigurado,
+  trocarTipoSmsGo,
+  urlCelular
+} from '@shared/sms'
 import { fmtPhone, useAction, useToast } from '../lib'
 
 const ESTADO: Record<WaStatus['state'], string> = {
@@ -223,18 +234,21 @@ function SmsCard({ inicial, salvar }: { inicial: SmsConfig; salvar: (c: SmsConfi
   }
   const pronto = smsConfigurado(salvo)
   const smsgo = c.preset === 'smsgo'
+  const celular = ehCelular(c)
+  const login = separarLogin(c.token)
   const tipo = lerTipoSmsGo(c.body)
   const sandbox = c.token.trim().startsWith('test_')
 
   return (
     <section className="card glass sms-card">
       <div className="sms-topo">
-        <h3>✉️ Disparo de SMS (API externa)</h3>
+        <h3>✉️ Disparo de SMS</h3>
         <span className={pronto ? 'ok small' : 'muted small'}>{pronto ? '✓ Configurado' : 'Não configurado'}</span>
       </div>
       <p className="muted">
-        Campanhas de SMS usam os mesmos contatos, variáveis e intervalos do WhatsApp. Para cada mensagem o sistema chama a
-        API do seu provedor de SMS. Token e configuração ficam criptografados neste computador.
+        Campanhas de SMS usam os mesmos contatos, variáveis e intervalos do WhatsApp. O envio sai por um provedor de SMS
+        (pago por mensagem) ou pelo <b>seu próprio celular Android</b>, usando o plano da operadora. Senhas e chaves ficam
+        criptografadas neste computador.
       </p>
       <div className="form-row">
         <label>
@@ -247,15 +261,82 @@ function SmsCard({ inicial, salvar }: { inicial: SmsConfig; salvar: (c: SmsConfi
             ))}
           </select>
         </label>
-        <label>
-          {smsgo ? 'Chave da API (SMSGo-key)' : 'Token / chave da API'}
-          <input type="password" value={c.token} onChange={(e) => set({ token: e.target.value.trim() })} placeholder="cole aqui" />
-        </label>
-        <label>
-          Remetente (se o provedor pedir)
-          <input value={c.sender} onChange={(e) => set({ sender: e.target.value })} placeholder="ex.: FWCRED" />
-        </label>
+        {celular ? (
+          <>
+            {c.preset === 'android_local' && (
+              <label>
+                Endereço do celular (aparece no app)
+                <input
+                  value={ipDaUrl(c.url)}
+                  onChange={(e) => set({ url: urlCelular(e.target.value) })}
+                  placeholder="ex.: 192.168.0.15"
+                />
+              </label>
+            )}
+            <label>
+              Usuário (do app)
+              <input
+                value={login.usuario}
+                onChange={(e) => set({ token: `${e.target.value.trim()}:${login.senha}` })}
+                placeholder="ex.: sms"
+              />
+            </label>
+            <label>
+              Senha (do app)
+              <input
+                type="password"
+                value={login.senha}
+                onChange={(e) => set({ token: `${login.usuario}:${e.target.value.trim()}` })}
+                placeholder="cole aqui"
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <label>
+              {smsgo ? 'Chave da API (SMSGo-key)' : 'Token / chave da API'}
+              <input type="password" value={c.token} onChange={(e) => set({ token: e.target.value.trim() })} placeholder="cole aqui" />
+            </label>
+            <label>
+              Remetente (se o provedor pedir)
+              <input value={c.sender} onChange={(e) => set({ sender: e.target.value })} placeholder="ex.: FWCRED" />
+            </label>
+          </>
+        )}
       </div>
+      {celular && (
+        <div className="tip small">
+          <b>Como usar o seu celular para enviar SMS</b> (o envio sai pelo chip, usando o plano da operadora — sem custo por
+          mensagem se o plano tiver SMS ilimitado):
+          <ol className="passos">
+            <li>
+              Num celular <b>Android</b> com o chip, instale o app <b>SMS Gateway for Android</b> (gratuito, site{' '}
+              <b>sms-gate.app</b>).
+            </li>
+            {c.preset === 'android_local' ? (
+              <li>
+                No app, ligue o <b>Local Server</b> e toque em <b>Offline</b>. Copie para cá o <b>endereço</b>, o{' '}
+                <b>usuário</b> e a <b>senha</b> que ele mostra. O celular e este computador precisam estar no{' '}
+                <b>mesmo Wi-Fi</b>.
+              </li>
+            ) : (
+              <li>
+                No app, ligue o <b>Cloud Server</b> e copie para cá o <b>usuário</b> e a <b>senha</b>. Funciona de qualquer
+                lugar com internet (as mensagens passam pelo servidor do sms-gate.app).
+              </li>
+            )}
+            <li>
+              Deixe o celular <b>carregando</b>, com o app aberto e sem "economia de bateria" para ele.
+            </li>
+            <li>
+              Use <b>intervalo de pelo menos {INTERVALO_CELULAR} s</b> nas campanhas: o Android segura o envio depois de ~30
+              SMS em 30 minutos.
+            </li>
+          </ol>
+          ⚠ Planos "SMS ilimitado" são para uso pessoal: envio em massa pode levar a operadora a <b>bloquear o chip</b>. Use
+          um chip dedicado e volumes moderados.
+        </div>
+      )}
       {smsgo && (
         <div className="form-row">
           <label>

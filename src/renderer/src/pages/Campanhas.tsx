@@ -8,7 +8,7 @@ import type {
   Settings,
   WaOverview
 } from '@shared/types'
-import { contarSms, semAcentos, smsConfigurado } from '@shared/sms'
+import { contarSms, ehCelular, INTERVALO_CELULAR, semAcentos, smsConfigurado } from '@shared/sms'
 import { fmtDate, fmtPhone, useAction, useToast } from '../lib'
 
 const STATUS: Record<CampaignSummary['status'], string> = {
@@ -242,6 +242,13 @@ export default function Campanhas({ wa }: { wa: WaOverview }) {
                     onClick={() => {
                       set('channel', 'sms')
                       tirarAnexo() // SMS não leva anexo
+                      // pelo celular Android: intervalo que respeita o limite do Android (~30 SMS em 30 min)
+                      if (ehCelular(s?.sms) && form.delayMin < INTERVALO_CELULAR)
+                        setForm((f) => ({
+                          ...f,
+                          delayMin: INTERVALO_CELULAR,
+                          delayMax: Math.max(f.delayMax, INTERVALO_CELULAR + 30)
+                        }))
                     }}
                   >
                     ✉️ SMS
@@ -296,6 +303,12 @@ export default function Campanhas({ wa }: { wa: WaOverview }) {
                   {contagem.porParte} por parte{contagem.especial ? ', por causa de acentos/emojis' : ''})
                   {s?.appendOptOut && s.optOutText ? ' — já contando o aviso de descadastro' : ''}
                 </p>
+              )}
+              {sms && ehCelular(s?.sms) && (
+                <div className="tip small">
+                  📱 Enviando pelo seu celular Android: intervalo mínimo de {INTERVALO_CELULAR} s entre SMS (limite do Android,
+                  ~30 SMS a cada 30 min) — cerca de {Math.floor(3600 / Math.max(INTERVALO_CELULAR, form.delayMin))} SMS por hora.
+                </div>
               )}
               {!sms && (
                 <>
