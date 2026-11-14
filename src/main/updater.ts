@@ -1,6 +1,7 @@
 import { app, type BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdaterStatus } from '@shared/types'
+import { UPDATE_URL } from './config'
 
 let current: UpdaterStatus = { state: 'idle' }
 
@@ -24,6 +25,8 @@ export function setupUpdater(getWin: () => BrowserWindow | null): {
     return { status: () => current, check: async () => set({ state: 'dev' }), install: () => {} }
   }
 
+  // As versões continuam publicadas no GitHub Releases, mas são lidas pela Vercel (ver config.ts)
+  autoUpdater.setFeedURL({ provider: 'generic', url: UPDATE_URL })
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
@@ -36,8 +39,8 @@ export function setupUpdater(getWin: () => BrowserWindow | null): {
   autoUpdater.on('update-downloaded', (i) => set({ state: 'ready', version: i.version }))
   const onError = (e: unknown) => {
     const msg = (e as Error)?.message ?? String(e)
-    // repositório ainda sem nenhuma release publicada: não é erro
-    if (/No published versions/i.test(msg)) set({ state: 'none' })
+    // ainda sem nenhuma versão publicada: não é erro
+    if (/No published versions|Cannot find latest\.yml/i.test(msg)) set({ state: 'none' })
     else set({ state: 'error', error: msg.split('\n')[0] })
   }
   autoUpdater.on('error', onError)

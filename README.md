@@ -117,16 +117,27 @@ npm run lancar-versao:minor    # 1.0.1 → 1.1.0 (novidades)
 ```
 
    O comando aumenta a versão, cria a tag `vX.Y.Z` e envia para o GitHub.
-3. Acompanhe a aba **Actions** no GitHub. Em cerca de 5 minutos a Release aparece com o instalador `SistemaDeDisparo-Setup-X.Y.Z.exe`.
-4. **Primeira instalação** em cada computador: baixe o `.exe` na página de Releases e instale. Depois disso as atualizações são automáticas: o app verifica ao abrir e a cada 30 minutos.
+3. Acompanhe a aba **Actions** no GitHub. Em cerca de 5 minutos a Release aparece com o instalador `SistemaDeDisparo-Setup-X.Y.Z.exe`, e o link `/baixar` da Vercel já passa a entregar a versão nova.
+4. **Primeira instalação** em cada computador: abra https://disparador-fwcred.vercel.app/baixar e instale. Depois disso as atualizações são automáticas: o app verifica ao abrir e a cada 30 minutos.
 
-### Página de download (Vercel)
+### Página de download e atualizações (Vercel)
 
-A pasta [site/](site/) é uma página simples com o botão **Baixar para Windows**. O link `/baixar`
-sempre entrega o instalador mais recente do GitHub Releases, então ele nunca precisa ser trocado.
+- **Link para instalar:** https://disparador-fwcred.vercel.app/baixar (sempre a versão mais recente)
+- **Página:** https://disparador-fwcred.vercel.app
 
-Para publicar: em vercel.com → **Add New → Project** → importe o repositório `disparador` →
-em **Root Directory** escolha `site` → **Deploy**. A cada push a Vercel atualiza a página sozinha.
+A pasta [site/](site/) roda na Vercel (projeto `disparador-fwcred`). Ela entrega o instalador e os
+arquivos de atualização (`/atualizacoes/latest.yml`) lendo o GitHub Releases pela **API do GitHub**.
+O app instalado procura atualizações nesse endereço (`UPDATE_URL` em [src/main/config.ts](src/main/config.ts)).
+
+Novas versões não exigem mexer na Vercel. Só se você alterar a pasta `site/`, publique de novo:
+
+```bash
+cd site
+npx vercel deploy --prod
+```
+
+Opcional: em vercel.com → projeto → **Settings → Environment Variables**, crie `GITHUB_TOKEN` com um token
+do GitHub **somente leitura** para aumentar o limite de consultas à API.
 
 > O Windows pode mostrar "O Windows protegeu o computador" porque o instalador não tem
 > assinatura digital. Clique em **Mais informações → Executar assim mesmo**. Para remover

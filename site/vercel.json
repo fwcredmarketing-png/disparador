@@ -1,5 +1,8 @@
 {
   "cleanUrls": true,
-  "rewrites": [{ "source": "/baixar", "destination": "/api/baixar" }],
+  "rewrites": [
+    { "source": "/baixar", "destination": "/api/baixar" },
+    { "source": "/atualizacoes/:arquivo", "destination": "/api/atualizacao?arquivo=:arquivo" }
+  ],
   "headers": [{ "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }] }]
 }

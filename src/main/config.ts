@@ -13,3 +13,10 @@ export const SUPABASE_KEY = 'sb_publishable_j2qFzrmnpS5ssIXNkVEu2A__EV05TKv'
 
 /** Bucket privado do Storage com as mídias das campanhas. */
 export const MEDIA_BUCKET = 'midias'
+
+/**
+ * De onde o app baixa as atualizações (página na Vercel, pasta site/).
+ * A Vercel entrega os arquivos do GitHub Releases pela API do GitHub,
+ * que funciona mesmo quando o link direto github.com/.../releases/download está bloqueado.
+ */
+export const UPDATE_URL = 'https://disparador-fwcred.vercel.app/atualizacoes'
