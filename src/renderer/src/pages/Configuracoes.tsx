@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AuthState, Member, Settings, UpdaterStatus } from '@shared/types'
 import { useAction } from '../lib'
+import type { Fx } from '../three/Scene3D'
+
+const FX: { id: Fx; nome: string; desc: string }[] = [
+  { id: 'leve', nome: 'Leve (recomendado)', desc: 'Globo 3D animado a 30 quadros por segundo, sem desfoque nos painéis.' },
+  { id: 'completo', nome: 'Completo', desc: 'Animação a 60 quadros e efeito de vidro. Bonito, mas pesado em telas 2K/4K.' },
+  { id: 'desligado', nome: 'Desligado', desc: 'Globo parado. O mais leve, para computadores mais simples.' }
+]
 
 const UPD: Record<UpdaterStatus['state'], string> = {
   dev: 'Modo desenvolvimento (atualização automática só funciona no app instalado)',
@@ -13,7 +20,14 @@ const UPD: Record<UpdaterStatus['state'], string> = {
   error: 'Erro ao verificar atualização'
 }
 
-export default function Configuracoes({ upd, version, auth }: { upd: UpdaterStatus; version: string; auth: AuthState }) {
+export default function Configuracoes(props: {
+  upd: UpdaterStatus
+  version: string
+  auth: AuthState
+  fx: Fx
+  setFx: (v: Fx) => void
+}) {
+  const { upd, version, auth, fx, setFx } = props
   const run = useAction()
   const admin = !!auth.admin
   const [s, setS] = useState<Settings | null>(null)
@@ -132,6 +146,22 @@ export default function Configuracoes({ upd, version, auth }: { upd: UpdaterStat
         </section>
 
         <AlterarSenha />
+
+        <section className="card glass">
+          <h3>Desempenho (efeitos visuais)</h3>
+          <p className="muted small">Vale só para este computador.</p>
+          <div className="fx-options">
+            {FX.map((o) => (
+              <label key={o.id} className={`fx-option ${fx === o.id ? 'active' : ''}`}>
+                <input type="radio" name="fx" checked={fx === o.id} onChange={() => setFx(o.id)} />
+                <span>
+                  {o.nome}
+                  <small>{o.desc}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   )

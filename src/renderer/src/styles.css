@@ -1,6 +1,6 @@
 :root {
   --bg: #050814;
-  --panel: rgba(12, 20, 40, 0.62);
+  --panel: rgba(10, 17, 34, 0.86); /* sem desfoque: painel mais opaco */
   --panel-2: rgba(20, 32, 60, 0.55);
   --line: rgba(120, 180, 255, 0.14);
   --line-2: rgba(120, 180, 255, 0.28);
@@ -71,7 +71,6 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  backdrop-filter: blur(14px) saturate(140%);
   box-shadow:
     0 10px 40px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -568,7 +567,6 @@ select option {
   background: var(--panel);
   border: 1px solid var(--line);
   align-self: flex-start;
-  backdrop-filter: blur(12px);
 }
 .tabs button {
   all: unset;
@@ -910,7 +908,6 @@ td.right {
   border-radius: 12px;
   background: rgba(12, 20, 40, 0.92);
   border: 1px solid var(--line-2);
-  backdrop-filter: blur(10px);
   max-width: 380px;
   animation: enter 0.25s ease;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
@@ -1030,4 +1027,66 @@ fieldset:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* ---------- Efeitos visuais ----------
+   O desfoque ("vidro") por cima do 3D animado é o efeito mais pesado da tela:
+   só fica ligado no modo "Completo" (Configurações → Desempenho). */
+body.fx-completo {
+  --panel: rgba(12, 20, 40, 0.62);
+}
+body.fx-completo .glass {
+  backdrop-filter: blur(14px) saturate(140%);
+}
+body.fx-completo .tabs {
+  backdrop-filter: blur(12px);
+}
+body.fx-completo .toast {
+  backdrop-filter: blur(10px);
+}
+/* Animações infinitas fazem o Windows redesenhar a tela inteira o tempo todo (pesado em 2K/4K).
+   Leve: o logo para de flutuar e os pontos de status piscam em "liga/desliga" (2 mudanças por segundo).
+   Desligado: nada decorativo se mexe (o indicador de carregamento continua). */
+body.fx-leve .logo-badge,
+body.fx-desligado .logo-badge {
+  animation: none;
+}
+body.fx-leve .pill .dot,
+body.fx-leve .dot.pulse,
+body.fx-leve .badge.running {
+  animation-timing-function: steps(1, end);
+}
+body.fx-desligado .pill .dot,
+body.fx-desligado .dot.pulse,
+body.fx-desligado .badge.running,
+body.fx-desligado .qr-frame .scanline {
+  animation: none;
+}
+
+/* ---------- Opções de desempenho ---------- */
+.fx-options {
+  display: grid;
+  gap: 8px;
+}
+.fx-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+}
+.fx-option.active {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green) inset;
+}
+.fx-option small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
 }

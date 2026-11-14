@@ -1,15 +1,16 @@
-import { useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { RoundedBox } from '@react-three/drei'
 import * as THREE from 'three'
+import { Limitador, type Fx } from './Scene3D'
 
-function Bar({ x, h, highlight }: { x: number; h: number; highlight: boolean }) {
+function Bar({ x, h, highlight, instant }: { x: number; h: number; highlight: boolean; instant: boolean }) {
   const ref = useRef<THREE.Mesh>(null)
   const target = Math.max(0.06, h)
   useFrame((_, dt) => {
     const m = ref.current
     if (!m) return
-    m.scale.y = THREE.MathUtils.lerp(m.scale.y, target, Math.min(1, dt * 4))
+    m.scale.y = instant ? target : THREE.MathUtils.lerp(m.scale.y, target, Math.min(1, dt * 4))
     m.position.y = m.scale.y / 2
   })
   return (
@@ -37,12 +38,33 @@ function Rig({ children }: { children: ReactNode }) {
   return <group ref={ref}>{children}</group>
 }
 
-/** Gráfico de barras 3D dos envios dos últimos 7 dias. */
-export default function Bars3D({ values }: { values: number[] }) {
+/**
+ * Gráfico de barras 3D dos envios dos últimos 7 dias.
+ * Só redesenha quando precisa: alguns segundos depois que os números mudam e
+ * enquanto o mouse está em cima. Parado, não gasta processador.
+ */
+export default function Bars3D({ values, fx }: { values: number[]; fx: Fx }) {
   const max = Math.max(1, ...values)
   const n = values.length
+  const chave = values.join(',')
+  const [crescendo, setCrescendo] = useState(true)
+  const [mouse, setMouse] = useState(false)
+  useEffect(() => {
+    setCrescendo(true)
+    const t = setTimeout(() => setCrescendo(false), 2500)
+    return () => clearTimeout(t)
+  }, [chave])
+  const instant = fx === 'desligado'
+  const animar = !instant && (crescendo || mouse)
   return (
-    <Canvas camera={{ position: [0, 2.2, 5.2], fov: 40 }} dpr={[1, 1.75]} gl={{ alpha: true, antialias: true }}>
+    <div style={{ width: '100%', height: '100%' }} onMouseEnter={() => setMouse(true)} onMouseLeave={() => setMouse(false)}>
+    <Canvas
+      camera={{ position: [0, 2.2, 5.2], fov: 40 }}
+      dpr={[1, 1.5]}
+      frameloop="demand"
+      gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
+    >
+      {animar && <Limitador fps={fx === 'completo' ? 60 : 30} />}
       <ambientLight intensity={0.5} />
       <pointLight position={[3, 5, 4]} intensity={60} color="#a5f3fc" />
       <pointLight position={[-4, 2, -2]} intensity={25} color="#25d366" />
@@ -52,10 +74,11 @@ export default function Bars3D({ values }: { values: number[] }) {
             <meshStandardMaterial color="#0b1730" metalness={0.6} roughness={0.35} />
           </RoundedBox>
           {values.map((v, i) => (
-            <Bar key={i} x={(i - (n - 1) / 2) * 0.85} h={(v / max) * 2.6} highlight={i === n - 1} />
+            <Bar key={i} x={(i - (n - 1) / 2) * 0.85} h={(v / max) * 2.6} highlight={i === n - 1} instant={instant} />
           ))}
         </group>
       </Rig>
     </Canvas>
+    </div>
   )
 }

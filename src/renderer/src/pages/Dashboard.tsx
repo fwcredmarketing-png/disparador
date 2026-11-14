@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { Stats, WaStatus } from '@shared/types'
 import Bars3D from '../three/Bars3D'
+import type { Fx } from '../three/Scene3D'
 import type { Page } from '../App'
 
 const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-export default function Dashboard({ wa, go, signal }: { wa: WaStatus; go: (p: Page) => void; signal: number }) {
+export default function Dashboard({ wa, go, signal, fx }: { wa: WaStatus; go: (p: Page) => void; signal: number; fx: Fx }) {
   const [s, setS] = useState<Stats | null>(null)
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function Dashboard({ wa, go, signal }: { wa: WaStatus; go: (p: Pa
       <div className="grid-2">
         <section className="card glass">
           <h3>Envios — últimos 7 dias</h3>
-          <div className="bars3d">{s && <Bars3D values={s.history.map((h) => h.count)} />}</div>
+          <div className="bars3d">{s && <Bars3D values={s.history.map((h) => h.count)} fx={fx} />}</div>
           <div className="bars-legend">
             {s?.history.map((h) => (
               <div key={h.date}>

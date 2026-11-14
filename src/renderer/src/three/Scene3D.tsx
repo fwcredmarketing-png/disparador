@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stars } from '@react-three/drei'
 import * as THREE from 'three'
 
@@ -161,14 +161,44 @@ function Globe({ color, signal, idle }: { color: string; signal: number; idle: b
   )
 }
 
+export type Fx = 'completo' | 'leve' | 'desligado'
+
+/**
+ * Perfis de desempenho. Em telas grandes (2K/4K) desenhar o 3D a 60 quadros por
+ * segundo em resolução cheia ocupa mais de um núcleo do processador o tempo todo.
+ */
+const PERFIS: Record<Fx, { fps: number; dpr: number | [number, number]; antialias: boolean; stars: number }> = {
+  completo: { fps: 60, dpr: [1, 1.5], antialias: true, stars: 2500 },
+  leve: { fps: 30, dpr: 1, antialias: false, stars: 1200 },
+  desligado: { fps: 0, dpr: 1, antialias: false, stars: 1200 } // desenha só quando algo muda
+}
+
+/** Limita os quadros por segundo (com frameloop="demand"). */
+export function Limitador({ fps }: { fps: number }) {
+  const invalidate = useThree((s) => s.invalidate)
+  useEffect(() => {
+    const t = setInterval(() => invalidate(), 1000 / fps)
+    return () => clearInterval(t)
+  }, [fps, invalidate])
+  return null
+}
+
 /** Cena 3D de fundo: globo de pontos que reage ao status e aos envios. */
-export default function Scene3D({ connected, signal }: { connected: boolean; signal: number }) {
+export default function Scene3D({ connected, signal, fx }: { connected: boolean; signal: number; fx: Fx }) {
   const color = connected ? '#25d366' : '#f97373'
+  const p = PERFIS[fx]
   return (
     <div className="scene3d">
-      <Canvas camera={{ position: [0, 0, 7.5], fov: 50 }} dpr={[1, 1.75]} gl={{ antialias: true, alpha: true }}>
+      <Canvas
+        key={fx} // antialias só muda recriando o contexto
+        camera={{ position: [0, 0, 7.5], fov: 50 }}
+        dpr={p.dpr}
+        frameloop={p.fps >= 60 ? 'always' : 'demand'}
+        gl={{ antialias: p.antialias, alpha: true, powerPreference: 'low-power' }}
+      >
+        {p.fps > 0 && p.fps < 60 && <Limitador fps={p.fps} />}
         <fog attach="fog" args={['#050814', 6, 16]} />
-        <Stars radius={60} depth={40} count={2500} factor={3} saturation={0} fade speed={0.6} />
+        <Stars radius={60} depth={40} count={p.stars} factor={3} saturation={0} fade speed={0.6} />
         <Globe color={color} signal={signal} idle={connected} />
       </Canvas>
     </div>
