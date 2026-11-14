@@ -47,7 +47,9 @@ export function setupUpdater(getWin: () => BrowserWindow | null): {
 
   const check = async () => {
     try {
-      await autoUpdater.checkForUpdates()
+      const r = await autoUpdater.checkForUpdates()
+      // o download automático roda à parte: trata o erro para não virar "promise sem tratamento"
+      r?.downloadPromise?.catch(onError)
     } catch (e) {
       onError(e)
     }

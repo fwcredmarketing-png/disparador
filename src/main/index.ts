@@ -121,6 +121,8 @@ function bootstrap(): void {
     await auth.logout()
   })
 
+  authed('auth:changePassword', (current: string, next: string) => auth.changePassword(current, next))
+
   authed('team:list', () => team.list())
   authed('team:add', (m: { email: string; name: string; admin: boolean }) => {
     auth.requireAdmin()

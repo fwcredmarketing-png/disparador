@@ -17,6 +17,7 @@ const api: Api = {
     state: () => invoke('auth:state'),
     login: (email, password) => invoke('auth:login', email, password),
     logout: () => invoke('auth:logout'),
+    changePassword: (current, next) => invoke('auth:changePassword', current, next),
     retry: () => invoke('auth:retry'),
     onChange: (cb) => on('auth:changed', cb)
   },

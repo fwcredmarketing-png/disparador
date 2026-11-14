@@ -130,8 +130,63 @@ export default function Configuracoes({ upd, version, auth }: { upd: UpdaterStat
             </button>
           </div>
         </section>
+
+        <AlterarSenha />
       </div>
     </div>
+  )
+}
+
+/** Troca a senha de quem está logado. */
+function AlterarSenha() {
+  const run = useAction()
+  const vazio = { atual: '', nova: '', repetir: '' }
+  const [f, setF] = useState(vazio)
+  const [salvando, setSalvando] = useState(false)
+  const diferente = f.repetir.length > 0 && f.nova !== f.repetir
+
+  const salvar = async () => {
+    setSalvando(true)
+    const ok = await run(async () => {
+      if (f.nova !== f.repetir) throw new Error('A confirmação não bate com a nova senha')
+      await window.api.auth.changePassword(f.atual, f.nova)
+      return true
+    }, 'Senha alterada').finally(() => setSalvando(false))
+    if (ok) setF(vazio)
+  }
+
+  return (
+    <section className="card glass">
+      <h3>Alterar minha senha</h3>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault()
+          salvar()
+        }}
+      >
+        <label>
+          Senha atual
+          <input type="password" autoComplete="current-password" value={f.atual} onChange={(e) => setF({ ...f, atual: e.target.value })} />
+        </label>
+        <div className="form-row">
+          <label>
+            Nova senha (mínimo 8 caracteres)
+            <input type="password" autoComplete="new-password" value={f.nova} onChange={(e) => setF({ ...f, nova: e.target.value })} />
+          </label>
+          <label>
+            Repetir a nova senha
+            <input type="password" autoComplete="new-password" value={f.repetir} onChange={(e) => setF({ ...f, repetir: e.target.value })} />
+          </label>
+        </div>
+        {diferente && <p className="error small">As duas senhas novas estão diferentes.</p>}
+        <div className="row">
+          <button className="btn primary" type="submit" disabled={salvando || !f.atual || f.nova.length < 8 || diferente}>
+            {salvando ? 'Salvando…' : 'Alterar senha'}
+          </button>
+        </div>
+      </form>
+    </section>
   )
 }
 

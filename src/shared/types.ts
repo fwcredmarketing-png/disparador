@@ -167,6 +167,7 @@ export interface Api {
     state(): Promise<AuthState>
     login(email: string, password: string): Promise<AuthState>
     logout(): Promise<void>
+    changePassword(current: string, next: string): Promise<void>
     retry(): Promise<AuthState>
     onChange(cb: (s: AuthState) => void): () => void
   }

@@ -1025,3 +1025,9 @@ fieldset {
 fieldset:disabled {
   opacity: 0.6;
 }
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

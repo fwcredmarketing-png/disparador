@@ -21,23 +21,28 @@ async function json(url) {
   return r.json()
 }
 
-/** Última versão publicada (não rascunho). */
-async function ultimaRelease() {
-  return json(`${API}/releases/latest`)
+/** Versões publicadas (sem rascunhos), da mais nova para a mais antiga. */
+async function releases() {
+  const todas = await json(`${API}/releases?per_page=30`)
+  return todas
+    .filter((r) => !r.draft && !r.prerelease)
+    .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))
 }
 
-/** Procura um arquivo pelo nome na última versão e, se não achar, nas anteriores. */
+/** Versão mais nova que tem instalador (ignora releases incompletas). */
+async function ultimaRelease() {
+  const rel = (await releases()).find((r) => instalador(r))
+  if (!rel) throw new Error('Nenhuma versão com instalador')
+  return rel
+}
+
+/** Procura um arquivo pelo nome, da versão mais nova para a mais antiga. */
 async function acharArquivo(nome) {
-  const latest = await ultimaRelease()
-  let asset = (latest.assets || []).find((a) => a.name === nome)
-  if (!asset) {
-    const todas = await json(`${API}/releases?per_page=20`)
-    for (const rel of todas) {
-      asset = (rel.assets || []).find((a) => a.name === nome)
-      if (asset) break
-    }
+  for (const rel of await releases()) {
+    const asset = (rel.assets || []).find((a) => a.name === nome)
+    if (asset) return asset
   }
-  return asset || null
+  return null
 }
 
 /** Link temporário (assinado pelo GitHub, válido por alguns minutos) para baixar o arquivo. */

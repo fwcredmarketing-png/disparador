@@ -1,6 +1,7 @@
 # Gera o instalador do Windows e publica no GitHub Releases
 # sempre que uma tag de versão (ex: v1.0.1) é enviada.
-# Os computadores com o sistema instalado baixam a atualização sozinhos.
+# Os computadores com o sistema instalado baixam a atualização sozinhos
+# (pela Vercel: https://disparador-fwcred.vercel.app/atualizacoes).
 name: Release
 
 on:
@@ -13,6 +14,8 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +28,22 @@ jobs:
 
       - run: npm run typecheck
 
-      - name: Build e publicação
+      # Cria a versão como RASCUNHO antes do build. Sem isso o electron-builder
+      # envia os arquivos em paralelo e pode criar duas releases para a mesma tag.
+      # Enquanto for rascunho, os computadores não enxergam a versão nova.
+      - name: Criar a versão (rascunho)
+        run: gh release create "$env:GITHUB_REF_NAME" --draft --title "$env:GITHUB_REF_NAME" --generate-notes
+
+      - name: Build e envio dos arquivos
         run: npm run release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Conferir os arquivos enviados
+        run: |
+          $nomes = gh release view "$env:GITHUB_REF_NAME" --json assets --jq '.assets[].name'
+          $nomes
+          if (-not ($nomes -match '\.exe$')) { throw 'Instalador .exe não foi enviado' }
+          if (-not ($nomes -contains 'latest.yml')) { throw 'latest.yml não foi enviado' }
+
+      # Só agora a versão aparece para os computadores e no link /baixar
+      - name: Publicar a versão
+        run: gh release edit "$env:GITHUB_REF_NAME" --draft=false --latest

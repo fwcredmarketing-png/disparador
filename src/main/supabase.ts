@@ -103,6 +103,21 @@ class Auth extends EventEmitter {
     return this.set({ state: 'signedIn', email: a.email, name: a.nome, admin: a.admin })
   }
 
+  /** Troca a senha de quem está logado (confere a senha atual antes). */
+  async changePassword(current: string, next: string): Promise<void> {
+    this.require()
+    if (!next || next.length < 8) throw new Error('A nova senha precisa ter pelo menos 8 caracteres')
+    if (next === current) throw new Error('A nova senha precisa ser diferente da atual')
+    const check = await db().auth.signInWithPassword({ email: this.s.email ?? '', password: current })
+    if (check.error)
+      throw new Error(/invalid login/i.test(check.error.message) ? 'Senha atual incorreta' : authMessage(check.error.message))
+    const { error } = await db().auth.updateUser({ password: next })
+    if (!error) return
+    if (/different from the old/i.test(error.message)) throw new Error('A nova senha precisa ser diferente da atual')
+    if (/weak|pwned|leaked|known/i.test(error.message)) throw new Error('Senha fraca ou já vazada na internet. Escolha outra.')
+    throw new Error(authMessage(error.message))
+  }
+
   async logout(): Promise<void> {
     try {
       await db().auth.signOut({ scope: 'local' })
