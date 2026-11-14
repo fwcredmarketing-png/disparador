@@ -45,16 +45,18 @@ export class BaileysProvider extends EventEmitter implements WaProvider {
     const b = await import('@whiskeysockets/baileys')
     const makeWASocket = b.default ?? b.makeWASocket
     const { state, saveCreds } = await b.useMultiFileAuthState(this.authDir)
-    const version = await b
-      .fetchLatestBaileysVersion()
-      .then((v) => v.version)
-      .catch(() => undefined)
+    // Versão do protocolo: a do WhatsApp Web atual; se falhar, a da lista do Baileys.
+    const version =
+      (await b.fetchLatestWaWebVersion?.().then((v) => v.version).catch(() => undefined)) ??
+      (await b.fetchLatestBaileysVersion().then((v) => v.version).catch(() => undefined))
 
     const sock = makeWASocket({
       auth: state,
       ...(version ? { version } : {}),
       logger: pino({ level: 'silent' }),
-      browser: b.Browsers?.windows?.('Desktop'),
+      // Desde 13/11/2026 o WhatsApp recusa (erro 428) conexões que se apresentam como o app
+      // "Desktop" oficial. Como "Chrome" no Windows o QR funciona (aparece como "Chrome (Windows)").
+      browser: b.Browsers.windows('Chrome'),
       markOnlineOnConnect: false,
       syncFullHistory: false
     })
@@ -64,6 +66,7 @@ export class BaileysProvider extends EventEmitter implements WaProvider {
 
     sock.ev.on('connection.update', async (u) => {
       if (u.qr) {
+        this.retries = 0 // o servidor respondeu: QR novo não é falha de conexão
         const qr = await QRCode.toDataURL(u.qr, { margin: 1, width: 360 })
         this.set({ state: 'qr', qr })
       }
@@ -89,15 +92,32 @@ export class BaileysProvider extends EventEmitter implements WaProvider {
           this.set({ state: 'disconnected' })
           return
         }
-        if (this.retries++ > 8) {
-          this.set({ state: 'disconnected', error: 'Não foi possível reconectar. Tente novamente.' })
+        const reconectar = (ms: number) =>
+          setTimeout(
+            () => this.connect().catch((e) => this.set({ state: 'disconnected', error: String(e?.message ?? e) })),
+            ms
+          )
+        // Depois de ler o QR, o WhatsApp pede para reconectar: faz na hora
+        if (code === b.DisconnectReason.restartRequired) {
+          this.set({ state: 'connecting' })
+          reconectar(300)
+          return
+        }
+        // Ninguém escaneou a tempo: para de gerar QR até a pessoa pedir de novo
+        if (code === b.DisconnectReason.timedOut && this.current.state === 'qr') {
+          this.set({ state: 'disconnected', error: 'O QR Code expirou. Clique em "Conectar" para gerar outro.' })
+          return
+        }
+        if (this.retries++ > 6) {
+          const motivo = (u.lastDisconnect?.error as Error | undefined)?.message
+          this.set({
+            state: 'disconnected',
+            error: `Não foi possível conectar ao WhatsApp${motivo ? ` (${motivo})` : ''}. Tente novamente em alguns minutos.`
+          })
           return
         }
         this.set({ state: 'connecting' })
-        setTimeout(
-          () => this.connect().catch((e) => this.set({ state: 'disconnected', error: String(e?.message ?? e) })),
-          Math.min(2000 * this.retries, 15000)
-        )
+        reconectar(Math.min(2000 * this.retries, 15000))
       }
     })
 

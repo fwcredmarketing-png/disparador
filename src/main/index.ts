@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { AuthState, CampaignInput, ImportResult, Settings, Stats } from '@shared/types'
@@ -94,9 +95,11 @@ function bootstrap(): void {
     }
   })
 
-  // Reconecta o WhatsApp automaticamente se já houver sessão salva neste computador
+  // Reconecta o WhatsApp sozinho só se já houver sessão salva neste computador
+  // (sem sessão, o QR é gerado quando a pessoa clica em "Conectar")
   const local = store.getLocal()
-  if (local.provider === 'cloud' ? local.cloud.token && local.cloud.phoneNumberId : true) {
+  const temSessao = existsSync(join(store.authDir, 'creds.json'))
+  if (local.provider === 'cloud' ? local.cloud.token && local.cloud.phoneNumberId : temSessao) {
     wa.connect().catch(() => {})
   }
 
