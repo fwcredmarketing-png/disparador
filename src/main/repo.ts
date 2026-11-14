@@ -112,6 +112,32 @@ export const contacts = {
     return added
   },
 
+  /**
+   * Separação de números: cadastra os aprovados com a etiqueta. Quem já existe ganha a etiqueta
+   * (mantém nome, outras etiquetas e o descadastro, que nunca é alterado aqui).
+   */
+  async importWithTag(rows: { name: string; phone: string }[], tag: string): Promise<{ novos: number; atualizados: number }> {
+    let novos = 0
+    let atualizados = 0
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500)
+      const existentes =
+        (await q<{ telefone: string; nome: string; tags: string[] }[]>(
+          db().from('contatos').select('telefone,nome,tags').in('telefone', chunk.map((r) => r.phone))
+        )) ?? []
+      const porTel = new Map(existentes.map((e) => [e.telefone, e]))
+      const linhas = chunk.map((r) => {
+        const e = porTel.get(r.phone)
+        if (!e) return { telefone: r.phone, nome: r.name, tags: [tag] }
+        return { telefone: r.phone, nome: e.nome || r.name, tags: [...new Set([...(e.tags ?? []), tag])] }
+      })
+      await q(db().from('contatos').upsert(linhas, { onConflict: 'telefone' }))
+      atualizados += existentes.length
+      novos += chunk.length - existentes.length
+    }
+    return { novos, atualizados }
+  },
+
   /** Descadastro automático (resposta "SAIR"). Devolve quantos contatos foram afetados. */
   async optOutByPhone(phone: string): Promise<number> {
     return (await q<number>(db().rpc('descadastrar_telefone', { p_telefone: phone }))) ?? 0

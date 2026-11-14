@@ -235,6 +235,52 @@ export interface MediaInfo {
   preview?: string // data URL da miniatura (só imagens)
 }
 
+// ---------- Separação de números (planilha com critérios) ----------
+/** Qual coluna da planilha tem cada informação (índice da coluna; null = não tem). */
+export interface SepMapa {
+  nome: number | null
+  telefones: number[] // uma ou mais colunas de telefone: vale o 1º celular válido da linha
+  ddd: number | null // DDD em coluna separada (quando o telefone vem sem DDD)
+  admissao: number | null // data de admissão
+  tempo: number | null // tempo de empresa (quando não há data de admissão)
+  tempoUnidade: 'anos' | 'meses'
+  nascimento: number | null // data de nascimento
+  idade: number | null // idade (quando não há data de nascimento)
+}
+
+/** Critérios de separação (null = não usa o critério). */
+export interface SepCriterios {
+  tempoMinimoAnos: number | null
+  idadeMin: number | null
+  idadeMax: number | null
+}
+
+export interface SepArquivo {
+  arquivo: string
+  colunas: string[]
+  total: number // linhas de dados
+  amostra: string[][] // primeiras linhas, para conferir as colunas
+  mapa: SepMapa // colunas reconhecidas automaticamente
+}
+
+export interface SepLinha {
+  linha: number // linha na planilha (1 = cabeçalho)
+  nome: string
+  telefone?: string // celular escolhido (5511999998888)
+  tempo?: string // ex.: "3 anos e 2 meses"
+  idade?: number
+  ok: boolean
+  motivo?: string
+}
+
+export interface SepResultado {
+  total: number
+  aprovados: number
+  reprovados: number
+  motivos: { motivo: string; quantidade: number }[]
+  amostra: SepLinha[] // primeiras linhas analisadas
+}
+
 export interface ImportResult {
   added: number
   duplicates: number
@@ -300,6 +346,17 @@ export interface Api {
   }
   stats: {
     get(): Promise<Stats>
+  }
+  separacao: {
+    /** Escolhe a planilha (CSV ou Excel) e reconhece as colunas. */
+    abrir(): Promise<SepArquivo | null>
+    analisar(mapa: SepMapa, criterios: SepCriterios): Promise<SepResultado>
+    /** Coloca os aprovados em Contatos com a etiqueta (quem já existe ganha a etiqueta). */
+    importar(mapa: SepMapa, criterios: SepCriterios, etiqueta: string): Promise<{ novos: number; atualizados: number }>
+    /** Salva um CSV: só os aprovados (telefones) ou o relatório completo (com o motivo de cada linha). */
+    exportar(mapa: SepMapa, criterios: SepCriterios, tipo: 'aprovados' | 'relatorio'): Promise<boolean>
+    /** Salva um modelo de planilha com as colunas que a separação usa. */
+    modelo(): Promise<boolean>
   }
   sms: {
     /** Envia um SMS de teste com a configuração salva (test=true: provedor em modo sandbox, nada foi enviado de verdade). */

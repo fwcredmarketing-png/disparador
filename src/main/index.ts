@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
-import type { AuthState, CampaignInput, ImportResult, Settings, Stats } from '@shared/types'
+import type { AuthState, CampaignInput, ImportResult, SepArquivo, SepCriterios, SepMapa, Settings, Stats } from '@shared/types'
 import { store } from './store'
 import { auth } from './supabase'
 import { campaigns, contacts, stats, team } from './repo'
@@ -12,6 +12,9 @@ import { SmsSender } from './sms'
 import { setupUpdater } from './updater'
 import { normalizePhone, normalizeText, parseContactsFile } from './utils'
 import { EXTENSOES_MIDIA, mediaInfo, savePastedImage } from './media'
+import { basename } from 'path'
+import { lerPlanilha, type Tabela } from './planilha'
+import { csvAprovados, csvModelo, csvRelatorio, detectarColunas, separar } from './separacao'
 
 let win: BrowserWindow | null = null
 
@@ -153,6 +156,62 @@ function bootstrap(): void {
   authed('wa:connect', (id: string) => wa.connect(id))
   authed('wa:disconnect', (id: string) => wa.disconnect(id))
   authed('wa:remove', (id: string) => wa.remove(id))
+
+  // ---------- Separação de números (planilha com critérios) ----------
+  // A planilha fica só na memória deste computador; só os aprovados vão para o banco.
+  let planilha: { tabela: Tabela; nome: string } | null = null
+  const abertaOuErro = () => {
+    if (!planilha) throw new Error('Escolha a planilha de novo')
+    return planilha
+  }
+  const salvarCsv = async (titulo: string, nome: string, conteudo: string) => {
+    const r = await dialog.showSaveDialog(win!, { title: titulo, defaultPath: nome, filters: [{ name: 'CSV (Excel)', extensions: ['csv'] }] })
+    if (r.canceled || !r.filePath) return false
+    await writeFile(r.filePath, conteudo, 'utf8')
+    return true
+  }
+  const baseNome = () =>
+    abertaOuErro()
+      .nome.replace(/\.[^.]+$/, '')
+      .replace(/[^\w-]+/g, '_')
+
+  authed('sep:abrir', async (): Promise<SepArquivo | null> => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: 'Planilha para separar os números',
+      filters: [{ name: 'Planilha (Excel ou CSV)', extensions: ['xlsx', 'csv', 'txt'] }],
+      properties: ['openFile']
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    const tabela = lerPlanilha(await readFile(r.filePaths[0]), r.filePaths[0])
+    if (!tabela.linhas.length) throw new Error('A planilha está vazia')
+    planilha = { tabela, nome: basename(r.filePaths[0]) }
+    return {
+      arquivo: planilha.nome,
+      colunas: tabela.colunas,
+      total: tabela.linhas.length,
+      amostra: tabela.linhas.slice(0, 5).map((l) => tabela.colunas.map((_, i) => (l[i] === null || l[i] === undefined ? '' : String(l[i])))),
+      mapa: detectarColunas(tabela)
+    }
+  })
+  authed('sep:analisar', (mapa: SepMapa, crit: SepCriterios) => separar(abertaOuErro().tabela, mapa, crit).resultado)
+  authed('sep:importar', async (mapa: SepMapa, crit: SepCriterios, etiqueta: string) => {
+    const tag = (etiqueta ?? '').trim()
+    if (!tag) throw new Error('Dê um nome para a etiqueta (é por ela que a campanha encontra esses contatos)')
+    const s = separar(abertaOuErro().tabela, mapa, crit)
+    const aprovados = s.linhas.filter((x) => x.ok && x.telefone).map((x) => ({ name: x.nome, phone: x.telefone! }))
+    if (!aprovados.length) throw new Error('Nenhum número aprovado para importar')
+    const r = await contacts.importWithTag(aprovados, tag)
+    send('contacts:changed')
+    return r
+  })
+  authed('sep:exportar', (mapa: SepMapa, crit: SepCriterios, tipo: 'aprovados' | 'relatorio') => {
+    const { tabela } = abertaOuErro()
+    const s = separar(tabela, mapa, crit)
+    return tipo === 'aprovados'
+      ? salvarCsv('Salvar números aprovados', `${baseNome()}-aprovados.csv`, csvAprovados(s))
+      : salvarCsv('Salvar relatório da separação', `${baseNome()}-relatorio.csv`, csvRelatorio(tabela, s))
+  })
+  authed('sep:modelo', () => salvarCsv('Salvar modelo de planilha', 'modelo-separacao.csv', csvModelo()))
 
   authed('sms:test', (phone: string) => {
     const n = normalizePhone(phone ?? '')

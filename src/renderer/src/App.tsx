@@ -9,14 +9,16 @@ import Dashboard from './pages/Dashboard'
 import Conexao from './pages/Conexao'
 import Contatos from './pages/Contatos'
 import Campanhas from './pages/Campanhas'
+import Separacao from './pages/Separacao'
 import Configuracoes from './pages/Configuracoes'
 
-export type Page = 'dashboard' | 'conexao' | 'contatos' | 'campanhas' | 'config'
+export type Page = 'dashboard' | 'conexao' | 'contatos' | 'separacao' | 'campanhas' | 'config'
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Painel', icon: '◈' },
   { id: 'conexao', label: 'Conexão', icon: '⌁' },
   { id: 'contatos', label: 'Contatos', icon: '☰' },
+  { id: 'separacao', label: 'Separação', icon: '⧉' },
   { id: 'campanhas', label: 'Campanhas', icon: '➤' },
   { id: 'config', label: 'Configurações', icon: '⚙' }
 ]
@@ -139,6 +141,7 @@ function Shell(props: {
         {page === 'dashboard' && <Dashboard wa={wa} go={setPage} signal={signal} fx={fx} />}
         {page === 'conexao' && <Conexao wa={wa} />}
         {page === 'contatos' && <Contatos admin={!!auth.admin} />}
+        {page === 'separacao' && <Separacao go={setPage} />}
         {page === 'campanhas' && <Campanhas wa={wa} />}
         {page === 'config' && <Configuracoes upd={upd} version={version} auth={auth} fx={fx} setFx={setFx} />}
       </main>

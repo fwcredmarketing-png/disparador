@@ -66,6 +66,13 @@ const api: Api = {
   stats: {
     get: () => invoke('stats:get')
   },
+  separacao: {
+    abrir: () => invoke('sep:abrir'),
+    analisar: (mapa, criterios) => invoke('sep:analisar', mapa, criterios),
+    importar: (mapa, criterios, etiqueta) => invoke('sep:importar', mapa, criterios, etiqueta),
+    exportar: (mapa, criterios, tipo) => invoke('sep:exportar', mapa, criterios, tipo),
+    modelo: () => invoke('sep:modelo')
+  },
   sms: {
     test: (phone) => invoke('sms:test', phone)
   },
