@@ -11,6 +11,8 @@ import { InvalidNumberError, mimeFromPath, type SendContent, type WaProvider } f
  */
 export class CloudProvider extends EventEmitter implements WaProvider {
   private current: WaStatus = { provider: 'cloud', state: 'disconnected' }
+  /** Mídia já enviada à Meta (a Meta guarda por 30 dias): evita reenviar a mesma imagem a cada contato. */
+  private enviadas = new Map<string, { id: string; kind: string; em: number }>()
 
   constructor(private getCfg: () => Settings['cloud']) {
     super()
@@ -76,6 +78,15 @@ export class CloudProvider extends EventEmitter implements WaProvider {
   }
 
   private async uploadMedia(path: string): Promise<{ id: string; kind: string }> {
+    const chave = `${this.getCfg().phoneNumberId}|${path}`
+    const ja = this.enviadas.get(chave)
+    if (ja && Date.now() - ja.em < 24 * 3600 * 1000) return ja
+    const enviada = await this.uploadMediaAgora(path)
+    this.enviadas.set(chave, { ...enviada, em: Date.now() })
+    return enviada
+  }
+
+  private async uploadMediaAgora(path: string): Promise<{ id: string; kind: string }> {
     const buf = await readFile(path)
     const { mime, kind } = mimeFromPath(path)
     const form = new FormData()

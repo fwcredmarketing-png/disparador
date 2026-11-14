@@ -41,14 +41,19 @@ export function spin(text: string): string {
   return out
 }
 
-/** Substitui variáveis e aplica spintax. */
-export function renderMessage(template: string, c: Pick<Contact, 'name' | 'phone'>): string {
+/** Substitui variáveis ({nome}, {primeiro_nome}, {telefone}, {link}) e aplica spintax. */
+export function renderMessage(
+  template: string,
+  c: Pick<Contact, 'name' | 'phone'>,
+  extra: { link?: string } = {}
+): string {
   const nome = (c.name || '').trim()
   const primeiro = nome.split(/\s+/)[0] || ''
   const withVars = template
     .replace(/\{nome\}/gi, nome)
     .replace(/\{primeiro_nome\}/gi, primeiro)
     .replace(/\{telefone\}/gi, c.phone)
+    .replace(/\{link\}/gi, extra.link ?? '')
   return spin(withVars).trim()
 }
 

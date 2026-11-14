@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { CampaignInput, CampaignResult, CampaignSummary, ResultStatus, WaStatus } from '@shared/types'
+import { useCallback, useEffect, useMemo, useState, type ClipboardEvent } from 'react'
+import type { CampaignInput, CampaignResult, CampaignSummary, MediaInfo, ResultStatus, WaStatus } from '@shared/types'
 import { fmtDate, fmtPhone, useAction } from '../lib'
 
 const STATUS: Record<CampaignSummary['status'], string> = {
@@ -27,9 +27,14 @@ const empty: CampaignInput = {
   batchPause: 10
 }
 
+const ICONE: Record<MediaInfo['kind'], string> = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄' }
+const TIPO: Record<MediaInfo['kind'], string> = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', document: 'Documento' }
+const tamanho = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
+
 /** Prévia simples da mensagem (escolhe a 1ª opção do spintax). */
-function preview(msg: string): string {
+function preview(msg: string, link: string): string {
   return msg
+    .replace(/\{link\}/gi, link || '[link de autocontratação]')
     .replace(/\{nome\}/gi, 'Maria Silva')
     .replace(/\{primeiro_nome\}/gi, 'Maria')
     .replace(/\{telefone\}/gi, '5511999998888')
@@ -56,11 +61,15 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   const [open, setOpen] = useState<string | null>(null)
   const [log, setLog] = useState<CampaignResult[]>([])
   const [saving, setSaving] = useState(false)
+  const [media, setMedia] = useState<MediaInfo | null>(null)
+  const [arrastando, setArrastando] = useState(false)
+  const [link, setLink] = useState('')
 
   const load = useCallback(() => window.api.campaigns.list().then(setList).catch(() => {}), [])
   useEffect(() => {
     load()
     window.api.contacts.tags().then(setTags).catch(() => {})
+    window.api.settings.get().then((s) => setLink(s.contractLink)).catch(() => {})
     const timer = setInterval(load, 10_000) // mostra o que outros computadores da equipe fizeram
     const off = window.api.campaigns.onProgress((c) =>
       setList((l) => (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [c, ...l]))
@@ -83,7 +92,30 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   }, [open, progressKey])
 
   const set = <K extends keyof CampaignInput>(k: K, v: CampaignInput[K]) => setForm((f) => ({ ...f, [k]: v }))
-  const pv = useMemo(() => preview(form.message), [form.message])
+  const pv = useMemo(() => preview(form.message, link), [form.message, link])
+  const usaLink = /\{link\}/i.test(form.message)
+
+  // ---------- Anexo (imagem, vídeo, áudio ou documento) ----------
+  const anexar = async (fn: () => Promise<MediaInfo | null>) => {
+    const m = await run(fn)
+    if (!m) return
+    setMedia(m)
+    set('mediaPath', m.path)
+  }
+  const escolher = () => anexar(() => window.api.dialog.pickMedia())
+  const tirarAnexo = () => {
+    setMedia(null)
+    set('mediaPath', undefined)
+  }
+  /** Ctrl+V com imagem ou arquivo copiado (texto continua colando normal na mensagem). */
+  const colar = (e: ClipboardEvent<HTMLElement>) => {
+    const f = e.clipboardData.files[0]
+    if (!f) return
+    e.preventDefault()
+    const caminho = window.api.media.pathForFile(f) // arquivo copiado no Explorador
+    if (caminho) anexar(() => window.api.media.info(caminho))
+    else anexar(async () => window.api.media.pasteImage(new Uint8Array(await f.arrayBuffer()), f.type)) // print/imagem
+  }
   const insert = (v: string) => set('message', form.message + v)
 
   const create = async (start: boolean) => {
@@ -91,6 +123,7 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
     const c = await run(() => window.api.campaigns.create(form), 'Campanha criada').finally(() => setSaving(false))
     if (!c) return
     setForm(empty)
+    setMedia(null)
     setCreating(false)
     await load()
     if (start) await run(() => window.api.campaigns.start(c.id))
@@ -109,7 +142,7 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
       </header>
 
       {creating && (
-        <section className="card glass composer">
+        <section className="card glass composer" onPaste={colar}>
           <div className="grid-2 tight">
             <div>
               <label>
@@ -123,51 +156,91 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
               <div className="chips">
                 <button onClick={() => insert('{nome}')}>{'{nome}'}</button>
                 <button onClick={() => insert('{primeiro_nome}')}>{'{primeiro_nome}'}</button>
+                <button
+                  className="chip-link"
+                  title={link ? `Insere o link de autocontratação: ${link}` : 'Cadastre o link em Configurações'}
+                  onClick={() => insert('{link}')}
+                >
+                  🔗 link de autocontratação
+                </button>
                 <button onClick={() => insert('{Olá|Oi|E aí}')}>{'{variação|spintax}'}</button>
                 <button onClick={() => insert('*negrito*')}>*negrito*</button>
                 <button onClick={() => insert('_itálico_')}>_itálico_</button>
               </div>
-              <div className="form-row">
-                <label>
-                  Enviar para
-                  <select value={form.tag} onChange={(e) => set('tag', e.target.value)}>
-                    <option value="">Todos os contatos</option>
-                    {tags.map((t) => (
-                      <option key={t} value={t}>
-                        Etiqueta: {t}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Mídia (opcional)
-                  <div className="file-pick">
-                    <button
-                      className="btn"
-                      onClick={async () => {
-                        const p = await window.api.dialog.pickMedia()
-                        if (p) set('mediaPath', p)
-                      }}
-                    >
-                      Anexar
+              {usaLink && !link && (
+                <div className="tip warn small">
+                  A mensagem usa {'{link}'}, mas o link de autocontratação ainda não foi cadastrado. Peça ao administrador
+                  para cadastrar em Configurações.
+                </div>
+              )}
+
+              <div
+                className={`dropzone ${arrastando ? 'over' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setArrastando(true)
+                }}
+                onDragLeave={() => setArrastando(false)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setArrastando(false)
+                  const f = e.dataTransfer.files[0]
+                  if (f) anexar(() => window.api.media.info(window.api.media.pathForFile(f)))
+                }}
+              >
+                {media ? (
+                  <div className="media-chip">
+                    {media.preview ? <img src={media.preview} alt="" /> : <span className="media-ico">{ICONE[media.kind]}</span>}
+                    <div className="media-meta">
+                      <b title={media.name}>{media.name}</b>
+                      <small>
+                        {TIPO[media.kind]} • {tamanho(media.size)}
+                      </small>
+                    </div>
+                    <button className="btn ghost" onClick={escolher}>
+                      Trocar
                     </button>
-                    {form.mediaPath && (
-                      <span className="tag" onClick={() => set('mediaPath', undefined)} title="Remover">
-                        {form.mediaPath.split(/[\\/]/).pop()} ✕
-                      </span>
-                    )}
+                    <button className="icon-btn" title="Remover anexo" onClick={() => tirarAnexo()}>
+                      ✕
+                    </button>
                   </div>
-                </label>
+                ) : (
+                  <button className="dz-empty" onClick={escolher}>
+                    <span className="dz-ico">🖼️</span>
+                    <span>
+                      <b>Anexar imagem</b>
+                      <small>ou vídeo, áudio, PDF • clique, arraste o arquivo para cá ou cole com Ctrl+V</small>
+                    </span>
+                  </button>
+                )}
               </div>
+
+              <label>
+                Enviar para
+                <select value={form.tag} onChange={(e) => set('tag', e.target.value)}>
+                  <option value="">Todos os contatos</option>
+                  {tags.map((t) => (
+                    <option key={t} value={t}>
+                      Etiqueta: {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div>
               <div className="phone-preview">
-                <div className="bubble">
-                  {form.mediaPath && <div className="media-ph">📎 {form.mediaPath.split(/[\\/]/).pop()}</div>}
-                  {pv || <span className="muted">Sua mensagem aparece aqui…</span>}
+                <div className={`bubble ${media?.preview ? 'com-imagem' : ''}`}>
+                  {media?.preview && <img className="bubble-img" src={media.preview} alt="" />}
+                  {media && !media.preview && (
+                    <div className="media-ph">
+                      {ICONE[media.kind]} {media.name}
+                    </div>
+                  )}
+                  {pv || (!media && <span className="muted">Sua mensagem aparece aqui…</span>)}
                   <small>12:00 ✓✓</small>
                 </div>
               </div>
+              {media && <p className="muted small center">Com anexo, o texto vai junto como legenda.</p>}
               <div className="form-row">
                 <label>
                   Intervalo mín. (s)

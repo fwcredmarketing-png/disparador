@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { Api } from '@shared/types'
 
 const invoke = <T = unknown>(ch: string, ...args: unknown[]) => ipcRenderer.invoke(ch, ...args) as Promise<T>
@@ -64,6 +64,11 @@ const api: Api = {
   },
   dialog: {
     pickMedia: () => invoke('dialog:media')
+  },
+  media: {
+    info: (path) => invoke('media:info', path),
+    pasteImage: (bytes, mime) => invoke('media:pasteImage', bytes, mime),
+    pathForFile: (file) => webUtils.getPathForFile(file)
   },
   updater: {
     status: () => invoke('updater:status'),

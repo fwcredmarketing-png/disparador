@@ -162,6 +162,7 @@ interface ConfigRow {
   adicionar_aviso: boolean
   texto_aviso: string
   simular_digitando: boolean
+  link_autocontratacao: string | null
 }
 
 export const sharedSettings = {
@@ -173,7 +174,8 @@ export const sharedSettings = {
       optOutKeywords: r.palavras_descadastro ?? [],
       appendOptOut: r.adicionar_aviso,
       optOutText: r.texto_aviso,
-      simulateTyping: r.simular_digitando
+      simulateTyping: r.simular_digitando,
+      contractLink: r.link_autocontratacao ?? ''
     }
   },
 
@@ -187,6 +189,7 @@ export const sharedSettings = {
           adicionar_aviso: s.appendOptOut,
           texto_aviso: s.optOutText,
           simular_digitando: s.simulateTyping,
+          link_autocontratacao: s.contractLink,
           atualizado_em: new Date().toISOString()
         })
         .eq('id', 1)

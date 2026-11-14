@@ -22,8 +22,10 @@ atualização automática pelo GitHub.
 - **Conexão**: por QR Code (WhatsApp comum ou Business) ou pela API oficial da Meta. A sessão fica salva e reconecta sozinha.
 - **Contatos**: importação de CSV/TXT (`nome;telefone;tags`), cadastro manual, etiquetas, busca, e o +55 é adicionado automaticamente.
 - **Campanhas**:
-  - variáveis `{nome}` e `{primeiro_nome}`, mais spintax `{Olá|Oi|E aí}`;
-  - envio de mídia (imagem, vídeo, áudio, PDF);
+  - variáveis `{nome}`, `{primeiro_nome}` e `{link}` (link de autocontratação da equipe, cadastrado pelo
+    administrador em Configurações), mais spintax `{Olá|Oi|E aí}`;
+  - anexo de imagem, vídeo, áudio ou PDF: botão, arrastar o arquivo ou colar com Ctrl+V, com prévia no
+    balão do WhatsApp (o texto vai como legenda);
   - intervalo aleatório entre envios, lotes com pausa e limite diário;
   - pausar, continuar e cancelar, com log em tempo real e relatório em CSV.
 - **Descadastro automático**: quem responder "SAIR" ou "PARAR" deixa de receber (as palavras são configuráveis).

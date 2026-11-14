@@ -11,6 +11,7 @@ import { CampaignEngine } from './campaign'
 import { WhatsAppManager } from './whatsapp/manager'
 import { setupUpdater } from './updater'
 import { normalizePhone, normalizeText, parseContactsFile } from './utils'
+import { EXTENSOES_MIDIA, mediaInfo, savePastedImage } from './media'
 
 let win: BrowserWindow | null = null
 
@@ -47,6 +48,8 @@ function createWindow(): BrowserWindow {
     }
   })
   w.once('ready-to-show', () => w.show())
+  // Soltar um arquivo fora da área de anexo faria a janela "abrir" o arquivo e sair do sistema
+  w.webContents.on('will-navigate', (e) => e.preventDefault())
   w.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
     return { action: 'deny' }
@@ -241,14 +244,17 @@ function bootstrap(): void {
 
   handle('dialog:media', async () => {
     const r = await dialog.showOpenDialog(win!, {
-      title: 'Escolher mídia',
+      title: 'Anexar imagem ou arquivo',
       filters: [
-        { name: 'Mídias', extensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mp3', 'ogg', 'pdf', 'docx', 'xlsx'] }
+        { name: 'Imagens', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
+        { name: 'Todos os tipos aceitos', extensions: EXTENSOES_MIDIA }
       ],
       properties: ['openFile']
     })
-    return r.canceled ? null : (r.filePaths[0] ?? null)
+    return r.canceled || !r.filePaths[0] ? null : mediaInfo(r.filePaths[0])
   })
+  handle('media:info', (path: string) => mediaInfo(path))
+  handle('media:pasteImage', (bytes: Uint8Array, mime: string) => savePastedImage(bytes, mime))
 
   handle('updater:status', () => updater.status())
   handle('updater:check', () => updater.check())

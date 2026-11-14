@@ -2,6 +2,7 @@ import { EventEmitter } from 'events'
 import type { CampaignInput, CampaignStatus, CampaignSummary, ResultStatus } from '@shared/types'
 import { campaigns as repo, contacts, media, stats } from './repo'
 import { getSettings } from './settings'
+import { mediaInfo } from './media'
 import { randomBetween, renderMessage } from './utils'
 import { InvalidNumberError } from './whatsapp/provider'
 import type { WhatsAppManager } from './whatsapp/manager'
@@ -72,6 +73,9 @@ export class CampaignEngine extends EventEmitter {
     if (!input.name?.trim()) throw new Error('Dê um nome para a campanha')
     if (!input.message?.trim() && !input.mediaPath && !input.template?.name)
       throw new Error('Escreva a mensagem ou anexe uma mídia')
+    if (/\{link\}/i.test(input.message ?? '') && !getSettings().contractLink)
+      throw new Error('A mensagem usa {link}, mas o link de autocontratação não foi cadastrado (Configurações).')
+    if (input.mediaPath) await mediaInfo(input.mediaPath) // confere tipo e tamanho antes de enviar ao Storage
     const tag = input.tag?.trim() || undefined
     const list = await contacts.forCampaign(tag)
     if (!list.length) throw new Error('Nenhum contato disponível para essa campanha')
@@ -240,6 +244,11 @@ export class CampaignEngine extends EventEmitter {
           continue
         }
         const s = getSettings()
+        if (/\{link\}/i.test(camp.mensagem) && !s.contractLink) {
+          this.note = 'O link de autocontratação foi apagado nas Configurações. Cadastre de novo e continue a campanha.'
+          this.stop = 'pause'
+          break outer
+        }
         if (sentToday >= s.dailyLimit) {
           this.note = `Limite diário de ${s.dailyLimit} envios deste número atingido. Continue amanhã.`
           this.stop = 'pause'
@@ -251,7 +260,11 @@ export class CampaignEngine extends EventEmitter {
           break outer
         }
 
-        let text = renderMessage(camp.mensagem || '', { name: contact.nome, phone: contact.telefone })
+        let text = renderMessage(
+          camp.mensagem || '',
+          { name: contact.nome, phone: contact.telefone },
+          { link: s.contractLink }
+        )
         if (s.appendOptOut && s.optOutText && text) text += `\n\n_${s.optOutText}_`
 
         let status: 'sent' | 'failed' | 'invalid' = 'sent'

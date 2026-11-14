@@ -113,6 +113,7 @@ export interface SharedSettings {
   appendOptOut: boolean
   optOutText: string
   simulateTyping: boolean
+  contractLink: string // link de autocontratação da equipe (variável {link} nas mensagens)
 }
 
 /** Configurações deste computador (conexão do WhatsApp; o token fica criptografado localmente). */
@@ -153,6 +154,15 @@ export interface UpdaterStatus {
   version?: string
   percent?: number
   error?: string
+}
+
+/** Arquivo escolhido para anexar na campanha (com miniatura, se for imagem). */
+export interface MediaInfo {
+  path: string
+  name: string
+  size: number // bytes
+  kind: 'image' | 'video' | 'audio' | 'document'
+  preview?: string // data URL da miniatura (só imagens)
 }
 
 export interface ImportResult {
@@ -213,7 +223,15 @@ export interface Api {
     get(): Promise<Stats>
   }
   dialog: {
-    pickMedia(): Promise<string | null>
+    pickMedia(): Promise<MediaInfo | null>
+  }
+  media: {
+    /** Confere um arquivo (arrastado para a tela) e devolve os dados com miniatura. */
+    info(path: string): Promise<MediaInfo>
+    /** Salva uma imagem colada com Ctrl+V (print, imagem do navegador) para anexar. */
+    pasteImage(bytes: Uint8Array, mime: string): Promise<MediaInfo>
+    /** Caminho no disco de um arquivo arrastado para a janela. */
+    pathForFile(file: File): string
   }
   updater: {
     status(): Promise<UpdaterStatus>

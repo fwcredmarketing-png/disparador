@@ -51,7 +51,8 @@ export default function Configuracoes(props: {
           appendOptOut: s.appendOptOut,
           optOutText: s.optOutText,
           simulateTyping: s.simulateTyping,
-          optOutKeywords: kw.split(',').map((k) => k.trim()).filter(Boolean)
+          optOutKeywords: kw.split(',').map((k) => k.trim()).filter(Boolean),
+          contractLink: s.contractLink
         }),
       'Configurações salvas para toda a equipe'
     )
@@ -79,6 +80,30 @@ export default function Configuracoes(props: {
       )}
 
       <div className="grid-2">
+        <section className="card glass">
+          <h3>🔗 Link de autocontratação</h3>
+          <fieldset disabled={!admin}>
+            <label>
+              Link da equipe (vale para todas as campanhas)
+              <input
+                type="url"
+                placeholder="https://..."
+                value={s.contractLink}
+                onChange={(e) => setS({ ...s, contractLink: e.target.value })}
+              />
+            </label>
+          </fieldset>
+          <div className="tip">
+            Na mensagem da campanha, use <code>{'{link}'}</code> (ou o botão <b>🔗 link de autocontratação</b>). Cada
+            contato recebe este link no lugar.
+          </div>
+          {s.contractLink && (
+            <a className="small" href={s.contractLink} target="_blank" rel="noreferrer">
+              Abrir o link para conferir ↗
+            </a>
+          )}
+        </section>
+
         <section className="card glass">
           <h3>Segurança de envio</h3>
           <fieldset disabled={!admin}>

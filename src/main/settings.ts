@@ -9,7 +9,8 @@ let shared: SharedSettings = {
   optOutKeywords: ['SAIR', 'PARAR', 'STOP', 'CANCELAR', 'DESCADASTRAR'],
   appendOptOut: true,
   optOutText: 'Responda SAIR para não receber mais mensagens.',
-  simulateTyping: true
+  simulateTyping: true,
+  contractLink: ''
 }
 
 /** Configurações deste computador + configurações da equipe. */
@@ -25,7 +26,8 @@ const SHARED_KEYS: (keyof SharedSettings)[] = [
   'optOutKeywords',
   'appendOptOut',
   'optOutText',
-  'simulateTyping'
+  'simulateTyping',
+  'contractLink'
 ]
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -40,6 +42,9 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
     for (const k of SHARED_KEYS) if (patch[k] !== undefined) Object.assign(next, { [k]: patch[k] })
     next.dailyLimit = Math.max(1, Math.floor(Number(next.dailyLimit) || 1))
     next.optOutKeywords = [...new Set(next.optOutKeywords.map((k) => k.trim().toUpperCase()).filter(Boolean))]
+    next.contractLink = (next.contractLink ?? '').trim()
+    if (next.contractLink && !/^https?:\/\/\S+$/i.test(next.contractLink))
+      throw new Error('O link de autocontratação precisa começar com https:// e não pode ter espaços')
     await sharedSettings.save(next)
     shared = next
   }
