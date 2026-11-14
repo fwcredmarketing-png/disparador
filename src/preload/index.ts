@@ -32,9 +32,12 @@ const api: Api = {
   },
   wa: {
     status: () => invoke('wa:status'),
-    connect: () => invoke('wa:connect'),
-    disconnect: () => invoke('wa:disconnect'),
-    logout: () => invoke('wa:logout'),
+    add: (phone) => invoke('wa:add', phone),
+    pair: (id, phone) => invoke('wa:pair', id, phone),
+    useQr: (id) => invoke('wa:useQr', id),
+    connect: (id) => invoke('wa:connect', id),
+    disconnect: (id) => invoke('wa:disconnect', id),
+    remove: (id) => invoke('wa:remove', id),
     onStatus: (cb) => on('wa:status', cb)
   },
   contacts: {
@@ -51,6 +54,7 @@ const api: Api = {
     list: () => invoke('campaigns:list'),
     log: (id) => invoke('campaigns:log', id),
     create: (c) => invoke('campaigns:create', c),
+    test: (c, phone) => invoke('campaigns:test', c, phone),
     start: (id) => invoke('campaigns:start', id),
     pause: (id) => invoke('campaigns:pause', id),
     cancel: (id) => invoke('campaigns:cancel', id),
@@ -61,6 +65,9 @@ const api: Api = {
   },
   stats: {
     get: () => invoke('stats:get')
+  },
+  sms: {
+    test: (phone) => invoke('sms:test', phone)
   },
   dialog: {
     pickMedia: () => invoke('dialog:media')

@@ -6,6 +6,7 @@ import type {
   CampaignFormat,
   CampaignStatus,
   CampaignSummary,
+  Channel,
   CloudTemplate,
   Contact,
   Member,
@@ -259,6 +260,8 @@ interface CampanhaRow {
   formato: CampaignFormat | null
   cartao_titulo: string | null
   cartao_descricao: string | null
+  botao_texto?: string | null // coluna da migração 005
+  canal?: Channel | null // coluna da migração 005
   status: CampaignStatus
   observacao: string | null
   executor: string | null
@@ -282,6 +285,7 @@ interface ResumoRow extends CampanhaRow {
 
 const toSummary = (r: ResumoRow): CampaignSummary => ({
   id: r.id,
+  channel: r.canal ?? 'whatsapp',
   name: r.nome,
   message: r.mensagem,
   mediaName: r.midia_nome ?? undefined,
@@ -294,6 +298,7 @@ const toSummary = (r: ResumoRow): CampaignSummary => ({
   format: r.formato ?? 'imagem',
   cardTitle: r.cartao_titulo ?? undefined,
   cardDescription: r.cartao_descricao ?? undefined,
+  buttonText: r.botao_texto ?? undefined,
   status: r.status,
   createdAt: Date.parse(r.criado_em),
   createdBy: r.criado_por ?? undefined,
@@ -501,7 +506,7 @@ export const campaigns = {
 // Estatísticas
 // ======================================================================
 export const stats = {
-  async get(sender?: string): Promise<Omit<Stats, 'runningCampaign'>> {
+  async get(sender?: string): Promise<Omit<Stats, 'runningCampaign' | 'numbers'>> {
     return q(db().rpc('estatisticas', { p_remetente: sender ?? null, p_tz: timeZone() }))
   },
 

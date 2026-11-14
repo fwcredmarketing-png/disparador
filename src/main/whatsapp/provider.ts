@@ -7,6 +7,8 @@ export interface SendContent {
   template?: CloudTemplate & { params: string[] }
   /** Cartão clicável: o texto leva o link e o WhatsApp mostra o cartão com imagem, título e descrição. */
   card?: { url: string; title: string; description: string; imagePath?: string }
+  /** Botão (experimental): imagem opcional + texto + botão que abre o link. */
+  button?: { text: string; url: string; imagePath?: string }
 }
 
 export interface IncomingMessage {
@@ -27,6 +29,7 @@ export class InvalidNumberError extends Error {
  * Eventos: 'status' (WaStatus) e 'incoming' (IncomingMessage)
  */
 export interface WaProvider extends EventEmitter {
+  readonly id: string
   status(): WaStatus
   connect(): Promise<void>
   disconnect(): Promise<void>

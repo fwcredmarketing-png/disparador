@@ -642,6 +642,144 @@ select option {
   color: var(--muted);
   line-height: 1.9;
 }
+/* ---------- Vários números ---------- */
+.num-resumo {
+  margin: 4px 0 0;
+}
+.numeros {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 12px;
+}
+.num-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.num-card.connected {
+  border-color: rgba(37, 211, 102, 0.35);
+}
+.num-card.wide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: 28px;
+  padding: 20px;
+  border-color: var(--line-2);
+}
+.num-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.num-top small {
+  margin-left: auto;
+}
+.num-fone {
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+.num-card .error {
+  margin: 0;
+  line-height: 1.4;
+}
+.num-card .row {
+  margin-top: auto; /* botões alinhados no rodapé, mesmo com cartões de alturas diferentes */
+  padding-top: 6px;
+}
+.num-card .btn {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.num-card.connected .dot {
+  background: var(--green);
+  color: var(--green);
+}
+.num-card.connecting .dot {
+  background: var(--amber);
+  color: var(--amber);
+  animation: blink 1s infinite;
+}
+.num-card.disconnected .dot {
+  color: var(--red);
+}
+
+/* novo número: escolher código ou QR */
+.num-card.wide.novo-numero {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.novo-numero p {
+  margin: 0;
+}
+.novo-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.novo-numero .row {
+  margin-top: 0;
+  padding-top: 0;
+}
+.campo-numero {
+  display: flex;
+  gap: 8px;
+  max-width: 460px;
+}
+.campo-numero input {
+  flex: 1;
+  min-width: 0;
+}
+.num-card .campo-numero .btn {
+  padding: 8px 12px;
+}
+.ou-codigo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+/* código de pareamento (8 letras para digitar no celular) */
+.pair-code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 22px 18px;
+  border-radius: 18px;
+  background: rgba(3, 8, 20, 0.7);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 0 40px rgba(37, 211, 102, 0.15);
+}
+.pair-code span {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 54px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid rgba(37, 211, 102, 0.45);
+  font: 700 28px/1 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  color: #eafff2;
+  user-select: all;
+}
+.pair-code i {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+
 .spinner {
   width: 54px;
   height: 54px;
@@ -1052,11 +1190,13 @@ body.fx-desligado .logo-badge {
   animation: none;
 }
 body.fx-leve .pill .dot,
+body.fx-leve .num-card .dot,
 body.fx-leve .dot.pulse,
 body.fx-leve .badge.running {
   animation-timing-function: steps(1, end);
 }
 body.fx-desligado .pill .dot,
+body.fx-desligado .num-card .dot,
 body.fx-desligado .dot.pulse,
 body.fx-desligado .badge.running,
 body.fx-desligado .qr-frame .scanline {
@@ -1243,6 +1383,103 @@ body.fx-desligado .qr-frame .scanline {
   position: static;
   font-size: 11.5px;
   color: rgba(233, 237, 239, 0.55);
+}
+/* formato botão (experimental): botão embaixo do balão, como o WhatsApp desenha */
+.bubble.com-botao {
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.bubble.com-botao > small {
+  position: static;
+  display: block;
+  text-align: right;
+  margin: 2px 0 6px;
+}
+.wa-botao {
+  margin: 0 -10px;
+  padding: 9px 10px;
+  border-top: 1px solid rgba(233, 237, 239, 0.15);
+  text-align: center;
+  color: #53bdeb;
+  font-weight: 600;
+  white-space: normal;
+}
+/* ---------- SMS ---------- */
+.formato.canal {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+.sms-conta {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.sms-conta.warn {
+  color: var(--amber);
+}
+.bubble.sms-bubble {
+  background: #2a3942;
+  border-radius: 14px 14px 4px 14px;
+}
+.sms-card .form-row {
+  flex-wrap: wrap;
+}
+.sms-card .form-row > label {
+  flex: 1;
+  min-width: 200px;
+}
+.sms-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sms-avancado {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sms-avancado[open] {
+  padding-bottom: 14px;
+}
+.sms-avancado summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.sms-avancado > * + * {
+  margin-top: 10px;
+}
+textarea.mono {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12.5px;
+}
+.sms-tel {
+  width: 230px;
+}
+.tag-exp {
+  font-size: 10px;
+  padding: 1px 6px;
+  margin-left: 4px;
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.18);
+  color: var(--amber);
+  vertical-align: middle;
+}
+.teste-envio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.teste-envio input {
+  flex: 1;
+  min-width: 160px;
 }
 .wa-link {
   color: #53bdeb;

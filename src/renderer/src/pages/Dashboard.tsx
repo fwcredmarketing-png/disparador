@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { Stats, WaStatus } from '@shared/types'
+import type { Stats, WaOverview } from '@shared/types'
 import Bars3D from '../three/Bars3D'
 import type { Fx } from '../three/Scene3D'
 import type { Page } from '../App'
 
 const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-export default function Dashboard({ wa, go, signal, fx }: { wa: WaStatus; go: (p: Page) => void; signal: number; fx: Fx }) {
+export default function Dashboard({ wa, go, signal, fx }: { wa: WaOverview; go: (p: Page) => void; signal: number; fx: Fx }) {
   const [s, setS] = useState<Stats | null>(null)
 
   useEffect(() => {
@@ -34,13 +34,20 @@ export default function Dashboard({ wa, go, signal, fx }: { wa: WaStatus; go: (p
 
       <div className="kpis">
         <div className="kpi glass">
-          <span>{wa.state === 'connected' ? 'Enviadas hoje (este número)' : 'Enviadas hoje (equipe)'}</span>
+          <span>
+            {!s || s.numbers === 0
+              ? 'Enviadas hoje (equipe)'
+              : s.numbers === 1
+                ? 'Enviadas hoje (este número)'
+                : `Enviadas hoje (${s.numbers} números)`}
+          </span>
           <strong>{s?.sentToday ?? '—'}</strong>
           <div className="meter">
             <i style={{ width: `${pct}%` }} />
           </div>
           <small>
-            {pct}% do limite diário ({s?.dailyLimit ?? 0})
+            {pct}% do limite diário ({s?.dailyLimit ?? 0}
+            {s && s.numbers > 1 ? ' somando os números' : ''})
           </small>
         </div>
         <div className="kpi glass">
@@ -55,10 +62,12 @@ export default function Dashboard({ wa, go, signal, fx }: { wa: WaStatus; go: (p
         </div>
         <div className="kpi glass">
           <span>WhatsApp</span>
-          <strong className={wa.state === 'connected' ? 'ok' : 'bad'}>
-            {wa.state === 'connected' ? 'Online' : 'Offline'}
-          </strong>
-          <small>{wa.provider === 'cloud' ? 'API oficial' : 'QR Code'}</small>
+          <strong className={wa.online > 0 ? 'ok' : 'bad'}>{wa.online > 0 ? 'Online' : 'Offline'}</strong>
+          <small>
+            {wa.provider === 'cloud'
+              ? 'API oficial'
+              : `${wa.online} de ${wa.connections.length} ${wa.connections.length === 1 ? 'número' : 'números'} • QR Code`}
+          </small>
         </div>
       </div>
 
@@ -85,7 +94,7 @@ export default function Dashboard({ wa, go, signal, fx }: { wa: WaStatus; go: (p
             <p className="muted">Nenhuma campanha rodando agora.</p>
           )}
           <ul className="checklist">
-            <li className={wa.state === 'connected' ? 'done' : ''} onClick={() => go('conexao')}>
+            <li className={wa.online > 0 ? 'done' : ''} onClick={() => go('conexao')}>
               Conectar o WhatsApp
             </li>
             <li className={(s?.totalContacts ?? 0) > 0 ? 'done' : ''} onClick={() => go('contatos')}>

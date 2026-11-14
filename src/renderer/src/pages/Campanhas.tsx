@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ClipboardEvent } from 'react'
-import type { CampaignInput, CampaignResult, CampaignSummary, MediaInfo, ResultStatus, WaStatus } from '@shared/types'
-import { fmtDate, fmtPhone, useAction } from '../lib'
+import type {
+  CampaignInput,
+  CampaignResult,
+  CampaignSummary,
+  MediaInfo,
+  ResultStatus,
+  Settings,
+  WaOverview
+} from '@shared/types'
+import { contarSms, semAcentos, smsConfigurado } from '@shared/sms'
+import { fmtDate, fmtPhone, useAction, useToast } from '../lib'
 
 const STATUS: Record<CampaignSummary['status'], string> = {
   draft: 'Pronta',
@@ -27,7 +36,8 @@ const empty: CampaignInput = {
   batchPause: 10,
   format: 'imagem',
   cardTitle: 'Simule seu crédito agora',
-  cardDescription: 'Toque aqui e faça sua simulação • FW Cred'
+  cardDescription: 'Toque aqui e faça sua simulação • FW Cred',
+  buttonText: 'Simular agora'
 }
 
 /** Domínio do link, como o WhatsApp mostra no cartão (ex.: fwcred.com.br). */
@@ -80,8 +90,9 @@ function Countdown({ at }: { at?: number }) {
   return <span className="muted">próximo envio em {s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`}</span>
 }
 
-export default function Campanhas({ wa }: { wa: WaStatus }) {
+export default function Campanhas({ wa }: { wa: WaOverview }) {
   const run = useAction()
+  const toast = useToast()
   const [list, setList] = useState<CampaignSummary[]>([])
   const [tags, setTags] = useState<string[]>([])
   const [form, setForm] = useState<CampaignInput>(empty)
@@ -92,12 +103,19 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   const [media, setMedia] = useState<MediaInfo | null>(null)
   const [arrastando, setArrastando] = useState(false)
   const [link, setLink] = useState('')
+  const [s, setS] = useState<Settings | null>(null)
 
   const load = useCallback(() => window.api.campaigns.list().then(setList).catch(() => {}), [])
   useEffect(() => {
     load()
     window.api.contacts.tags().then(setTags).catch(() => {})
-    window.api.settings.get().then((s) => setLink(s.contractLink)).catch(() => {})
+    window.api.settings
+      .get()
+      .then((x) => {
+        setS(x)
+        setLink(x.contractLink)
+      })
+      .catch(() => {})
     const timer = setInterval(load, 10_000) // mostra o que outros computadores da equipe fizeram
     const off = window.api.campaigns.onProgress((c) =>
       setList((l) => (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [c, ...l]))
@@ -122,7 +140,37 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   const set = <K extends keyof CampaignInput>(k: K, v: CampaignInput[K]) => setForm((f) => ({ ...f, [k]: v }))
   const pv = useMemo(() => preview(form.message, link), [form.message, link])
   const usaLink = /\{link\}/i.test(form.message)
-  const cartao = form.format === 'cartao'
+  const sms = form.channel === 'sms'
+  const cartao = !sms && form.format === 'cartao'
+  const botao = !sms && form.format === 'botao'
+  const smsOk = smsConfigurado(s?.sms)
+  const podeEnviar = sms ? smsOk : wa.online > 0
+  // SMS: texto final (com aviso de descadastro e sem acentos, se configurado) e quantas partes ocupa
+  const pvSms = useMemo(() => {
+    if (!sms) return ''
+    let t = pv
+    if (s?.appendOptOut && s.optOutText && t) t += `\n${s.optOutText}`
+    return s?.sms.stripAccents ? semAcentos(t) : t
+  }, [sms, pv, s])
+  const contagem = useMemo(() => contarSms(pvSms), [pvSms])
+  const [telTeste, setTelTeste] = useState(() => {
+    try {
+      return localStorage.getItem('telefone-teste') ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const [testando, setTestando] = useState(false)
+  const enviarTeste = async () => {
+    try {
+      localStorage.setItem('telefone-teste', telTeste)
+    } catch {
+      /* só não lembra o número */
+    }
+    setTestando(true)
+    const por = await run(() => window.api.campaigns.test(form, telTeste)).finally(() => setTestando(false))
+    if (por) toast(por === 'sms' ? 'SMS de teste enviado. Confira no celular.' : `Teste enviado por ${fmtPhone(por)}. Confira no celular de teste.`, 'ok')
+  }
   // no cartão, o link vai no fim do texto se a mensagem não tiver {link}
   const textoCartao = useMemo(() => {
     const l = link || '[link de autocontratação]'
@@ -144,7 +192,7 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   /** Ctrl+V com imagem ou arquivo copiado (texto continua colando normal na mensagem). */
   const colar = (e: ClipboardEvent<HTMLElement>) => {
     const f = e.clipboardData.files[0]
-    if (!f) return
+    if (!f || sms) return // SMS não leva anexo
     e.preventDefault()
     const caminho = window.api.media.pathForFile(f) // arquivo copiado no Explorador
     if (caminho) anexar(() => window.api.media.info(caminho))
@@ -179,6 +227,28 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
         <section className="card glass composer" onPaste={colar}>
           <div className="grid-2 tight">
             <div>
+              <div className="formato canal">
+                <span>Canal</span>
+                <div className="tabs">
+                  <button className={!sms ? 'active' : ''} onClick={() => set('channel', 'whatsapp')}>
+                    💬 WhatsApp
+                  </button>
+                  <button
+                    className={sms ? 'active' : ''}
+                    onClick={() => {
+                      set('channel', 'sms')
+                      tirarAnexo() // SMS não leva anexo
+                    }}
+                  >
+                    ✉️ SMS
+                  </button>
+                </div>
+              </div>
+              {sms && !smsOk && (
+                <div className="tip warn small">
+                  O SMS ainda não está configurado neste computador. Configure na tela <b>Conexão → Disparo de SMS</b>.
+                </div>
+              )}
               <label>
                 Nome da campanha
                 <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Promoção de novembro" />
@@ -198,27 +268,68 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   🔗 link de autocontratação
                 </button>
                 <button onClick={() => insert('{Olá|Oi|E aí}')}>{'{variação|spintax}'}</button>
-                <button onClick={() => insert('*negrito*')}>*negrito*</button>
-                <button onClick={() => insert('_itálico_')}>_itálico_</button>
+                {!sms && (
+                  <>
+                    <button onClick={() => insert('*negrito*')}>*negrito*</button>
+                    <button onClick={() => insert('_itálico_')}>_itálico_</button>
+                  </>
+                )}
               </div>
-              {(usaLink || cartao) && !link && (
+              {(usaLink || cartao || botao) && !link && (
                 <div className="tip warn small">
-                  {cartao ? 'O cartão clicável abre o link de autocontratação' : 'A mensagem usa {link}'}, mas o link ainda
-                  não foi cadastrado. Peça ao administrador para cadastrar em Configurações.
+                  {cartao
+                    ? 'O cartão clicável abre o link de autocontratação'
+                    : botao
+                      ? 'O botão abre o link de autocontratação'
+                      : 'A mensagem usa {link}'}
+                  , mas o link ainda não foi cadastrado. Peça ao administrador para cadastrar em Configurações.
                 </div>
               )}
 
+              {sms && (
+                <p className={`sms-conta ${contagem.partes > 1 ? 'warn' : 'muted'}`}>
+                  {contagem.caracteres} caracteres • {contagem.partes} {contagem.partes === 1 ? 'SMS' : 'SMS por contato'} (
+                  {contagem.porParte} por parte{contagem.especial ? ', por causa de acentos/emojis' : ''})
+                  {s?.appendOptOut && s.optOutText ? ' — já contando o aviso de descadastro' : ''}
+                </p>
+              )}
+              {!sms && (
+                <>
               <div className="formato">
                 <span>Formato da mensagem</span>
                 <div className="tabs">
-                  <button className={!cartao ? 'active' : ''} onClick={() => set('format', 'imagem')}>
+                  <button className={!cartao && !botao ? 'active' : ''} onClick={() => set('format', 'imagem')}>
                     🖼️ Imagem + texto
                   </button>
                   <button className={cartao ? 'active' : ''} onClick={() => set('format', 'cartao')}>
                     🔗 Cartão clicável
                   </button>
+                  {wa.provider === 'baileys' && (
+                    <button className={botao ? 'active' : ''} onClick={() => set('format', 'botao')}>
+                      🔘 Botão <small className="tag-exp">experimental</small>
+                    </button>
+                  )}
                 </div>
               </div>
+              {botao && (
+                <>
+                  <label>
+                    Texto do botão (até 20 letras)
+                    <input
+                      value={form.buttonText ?? ''}
+                      maxLength={20}
+                      onChange={(e) => set('buttonText', e.target.value)}
+                      placeholder="Simular agora"
+                    />
+                  </label>
+                  <div className="tip warn small">
+                    ⚠ <b>Experimental.</b> Pelo QR Code o WhatsApp não libera botões oficialmente: o sistema monta a
+                    mensagem como o WhatsApp de empresas monta. Pode não aparecer em alguns aparelhos (ex.: WhatsApp Web),
+                    pode parar de funcionar a qualquer atualização do WhatsApp e <b>aumenta o risco de bloqueio</b> do
+                    número. Use <b>Enviar teste</b> no seu celular antes de disparar.
+                  </div>
+                </>
+              )}
               {cartao && (
                 <>
                   <div className="form-row">
@@ -276,15 +387,17 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   <button className="dz-empty" onClick={escolher}>
                     <span className="dz-ico">🖼️</span>
                     <span>
-                      <b>{cartao ? 'Imagem do cartão' : 'Anexar imagem'}</b>
+                      <b>{cartao ? 'Imagem do cartão' : botao ? 'Imagem acima do botão (opcional)' : 'Anexar imagem'}</b>
                       <small>
-                        {cartao ? 'JPG, PNG ou WEBP' : 'ou vídeo, áudio, PDF'} • clique, arraste o arquivo para cá ou cole com
+                        {cartao || botao ? 'JPG, PNG ou WEBP' : 'ou vídeo, áudio, PDF'} • clique, arraste o arquivo para cá ou cole com
                         Ctrl+V
                       </small>
                     </span>
                   </button>
                 )}
               </div>
+                </>
+              )}
 
               <label>
                 Enviar para
@@ -300,7 +413,19 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
             </div>
             <div>
               <div className="phone-preview">
-                {cartao ? (
+                {sms ? (
+                  <div className="bubble sms-bubble">
+                    {pvSms ? <ComLink texto={pvSms} link={link} /> : <span className="muted">Seu SMS aparece aqui…</span>}
+                    <small>12:00</small>
+                  </div>
+                ) : botao ? (
+                  <div className={`bubble com-botao ${media?.preview ? 'com-imagem' : ''}`}>
+                    {media?.preview && <img className="bubble-img" src={media.preview} alt="" />}
+                    {pv ? <ComLink texto={pv} link={link} /> : <span className="muted">Texto acima do botão…</span>}
+                    <small>12:00 ✓✓</small>
+                    <div className="wa-botao">↗ {form.buttonText || 'Simular agora'}</div>
+                  </div>
+                ) : cartao ? (
                   <div className="bubble com-cartao">
                     <div className="wa-card">
                       {media?.preview && <img src={media.preview} alt="" />}
@@ -326,11 +451,30 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   </div>
                 )}
               </div>
-              {cartao ? (
+              {sms ? (
+                <p className="muted small center">
+                  SMS é só texto. Links aparecem clicáveis na maioria dos celulares.
+                  {s?.sms.stripAccents ? ' Os acentos são retirados no envio.' : ''}
+                </p>
+              ) : botao ? (
+                <p className="muted small center">Tocar no botão abre o link de autocontratação.</p>
+              ) : cartao ? (
                 <p className="muted small center">No WhatsApp, tocar em qualquer parte do cartão abre o link.</p>
               ) : (
                 media && <p className="muted small center">Com anexo, o texto vai junto como legenda.</p>
               )}
+              <div className="teste-envio">
+                <span>Enviar teste para</span>
+                <input
+                  value={telTeste}
+                  inputMode="tel"
+                  placeholder="seu celular, ex.: 11 99999-8888"
+                  onChange={(e) => setTelTeste(e.target.value)}
+                />
+                <button className="btn" disabled={testando || !telTeste.trim() || !podeEnviar} onClick={enviarTeste}>
+                  {testando ? 'Enviando…' : 'Enviar teste'}
+                </button>
+              </div>
               <div className="form-row">
                 <label>
                   Intervalo mín. (s)
@@ -351,7 +495,7 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   <input type="number" min={0} value={form.batchPause} onChange={(e) => set('batchPause', +e.target.value)} />
                 </label>
               </div>
-              {wa.provider === 'cloud' && (
+              {!sms && wa.provider === 'cloud' && (
                 <div className="form-row">
                   <label>
                     Template aprovado (API oficial)
@@ -375,11 +519,14 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
             </div>
           </div>
           <div className="row end">
-            <span className="muted">Envie apenas para contatos que autorizaram receber mensagens.</span>
+            <span className="muted">
+              Envie apenas para contatos que autorizaram receber mensagens.
+              {wa.online > 1 && ` ${wa.online} números conectados: se um cair, os envios seguem pelos outros.`}
+            </span>
             <button className="btn" onClick={() => create(false)} disabled={saving}>
               {saving ? 'Salvando…' : 'Salvar'}
             </button>
-            <button className="btn primary" onClick={() => create(true)} disabled={saving || wa.state !== 'connected'}>
+            <button className="btn primary" onClick={() => create(true)} disabled={saving || !podeEnviar}>
               Salvar e iniciar ➤
             </button>
           </div>
@@ -399,7 +546,9 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   <small className="muted">
                     Criada {fmtDate(c.createdAt)}
                     {c.createdBy ? ` por ${c.createdBy}` : ''} {c.tag ? `• etiqueta "${c.tag}"` : '• todos os contatos'}
+                    {c.channel === 'sms' ? ' • ✉️ SMS' : ''}
                     {c.format === 'cartao' ? ' • 🔗 cartão clicável' : ''}
+                    {c.format === 'botao' ? ` • 🔘 botão "${c.buttonText ?? 'Simular agora'}"` : ''}
                     {c.mediaName ? ` • 📎 ${c.mediaName}` : ''}
                   </small>
                 </div>

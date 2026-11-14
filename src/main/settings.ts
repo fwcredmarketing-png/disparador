@@ -33,8 +33,16 @@ const SHARED_KEYS: (keyof SharedSettings)[] = [
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
   const local: Partial<LocalSettings> = {}
   if (patch.provider) local.provider = patch.provider
+  if (patch.rotation) local.rotation = patch.rotation
   if (patch.cloud) local.cloud = patch.cloud
-  if (local.provider || local.cloud) store.saveLocal(local)
+  if (patch.sms) {
+    const u = patch.sms.url?.trim() ?? ''
+    // a URL pode ter {{variaveis}}; só não pode ter espaço
+    if (u && !/^https?:\/\/\S+$/i.test(u))
+      throw new Error('O endereço da API de SMS precisa começar com https:// e não pode ter espaços')
+    local.sms = { ...patch.sms, url: u }
+  }
+  if (local.provider || local.rotation || local.cloud || local.sms) store.saveLocal(local)
 
   if (SHARED_KEYS.some((k) => patch[k] !== undefined)) {
     auth.requireAdmin()

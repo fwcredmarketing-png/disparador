@@ -10,7 +10,8 @@ import { InvalidNumberError, mimeFromPath, type SendContent, type WaProvider } f
  * Fora da janela de 24h, a Meta só permite mensagens de TEMPLATE aprovado.
  */
 export class CloudProvider extends EventEmitter implements WaProvider {
-  private current: WaStatus = { provider: 'cloud', state: 'disconnected' }
+  readonly id = 'cloud'
+  private current: WaStatus = { id: 'cloud', provider: 'cloud', state: 'disconnected' }
   /** Mídia já enviada à Meta (a Meta guarda por 30 dias): evita reenviar a mesma imagem a cada contato. */
   private enviadas = new Map<string, { id: string; kind: string; em: number }>()
 
@@ -22,8 +23,8 @@ export class CloudProvider extends EventEmitter implements WaProvider {
     return this.current
   }
 
-  private set(s: Omit<WaStatus, 'provider'>): void {
-    this.current = { provider: 'cloud', ...s }
+  private set(s: Omit<WaStatus, 'provider' | 'id'>): void {
+    this.current = { id: 'cloud', provider: 'cloud', ...s }
     this.emit('status', this.current)
   }
 
@@ -99,6 +100,8 @@ export class CloudProvider extends EventEmitter implements WaProvider {
 
   async send(phone: string, content: SendContent): Promise<void> {
     if (this.current.state !== 'connected') throw new Error('API oficial não conectada')
+    if (content.button && !content.template?.name)
+      throw new Error('Na API oficial, o botão vem de um modelo (template) aprovado pela Meta com botão de link.')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let payload: any
 

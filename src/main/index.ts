@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { existsSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { AuthState, CampaignInput, ImportResult, Settings, Stats } from '@shared/types'
@@ -9,6 +8,7 @@ import { campaigns, contacts, stats, team } from './repo'
 import { getSettings, refreshShared, saveSettings } from './settings'
 import { CampaignEngine } from './campaign'
 import { WhatsAppManager } from './whatsapp/manager'
+import { SmsSender } from './sms'
 import { setupUpdater } from './updater'
 import { normalizePhone, normalizeText, parseContactsFile } from './utils'
 import { EXTENSOES_MIDIA, mediaInfo, savePastedImage } from './media'
@@ -65,7 +65,8 @@ function createWindow(): BrowserWindow {
 function bootstrap(): void {
   store.load()
   const wa = new WhatsAppManager()
-  const engine = new CampaignEngine(wa)
+  const sms = new SmsSender(() => getSettings().sms)
+  const engine = new CampaignEngine(wa, sms)
   win = createWindow()
   const updater = setupUpdater(() => win)
 
@@ -98,13 +99,9 @@ function bootstrap(): void {
     }
   })
 
-  // Reconecta o WhatsApp sozinho só se já houver sessão salva neste computador
-  // (sem sessão, o QR é gerado quando a pessoa clica em "Conectar")
-  const local = store.getLocal()
-  const temSessao = existsSync(join(store.authDir, 'creds.json'))
-  if (local.provider === 'cloud' ? local.cloud.token && local.cloud.phoneNumberId : temSessao) {
-    wa.connect().catch(() => {})
-  }
+  // Reconecta sozinho os números que já têm sessão salva neste computador
+  // (número novo: o QR é gerado quando a pessoa clica em "Adicionar número")
+  wa.connectSaved()
 
   // ---------- IPC ----------
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -149,10 +146,19 @@ function bootstrap(): void {
     return next
   })
 
-  authed('wa:status', () => wa.status())
-  authed('wa:connect', () => wa.connect())
-  authed('wa:disconnect', () => wa.disconnect())
-  authed('wa:logout', () => wa.logout())
+  authed('wa:status', () => wa.overview())
+  authed('wa:add', (phone?: string) => wa.add(phone))
+  authed('wa:pair', (id: string, phone: string) => wa.pair(id, phone))
+  authed('wa:useQr', (id: string) => wa.useQr(id))
+  authed('wa:connect', (id: string) => wa.connect(id))
+  authed('wa:disconnect', (id: string) => wa.disconnect(id))
+  authed('wa:remove', (id: string) => wa.remove(id))
+
+  authed('sms:test', (phone: string) => {
+    const n = normalizePhone(phone ?? '')
+    if (!n) throw new Error('Número inválido. Digite com DDD, por exemplo: 11 99999-8888.')
+    return sms.send(n, 'Teste do Sistema de Disparo FW Cred: o SMS está configurado corretamente.')
+  })
 
   authed('contacts:list', () => contacts.list())
   authed('contacts:tags', () => contacts.tags())
@@ -202,6 +208,7 @@ function bootstrap(): void {
   authed('campaigns:list', async () => (await campaigns.list()).map((c) => engine.decorate(c)))
   authed('campaigns:log', (id: string) => campaigns.log(id))
   authed('campaigns:create', (input: CampaignInput) => engine.create(input))
+  authed('campaigns:test', (input: CampaignInput, phone: string) => engine.test(input, phone))
   authed('campaigns:start', (id: string) => engine.start(id))
   authed('campaigns:pause', (id: string) => engine.pause(id))
   authed('campaigns:cancel', (id: string) => engine.cancel(id))
@@ -234,12 +241,20 @@ function bootstrap(): void {
   })
 
   authed('stats:get', async (): Promise<Stats> => {
-    const st = wa.status()
-    const [s, running] = await Promise.all([
-      stats.get(st.state === 'connected' ? st.me : undefined),
-      engine.runningName ? Promise.resolve(engine.runningName) : campaigns.runningName().catch(() => undefined)
+    // "enviadas hoje": soma dos números conectados aqui (cada um tem o seu limite diário)
+    const nums = [...new Set(wa.senders().map((x) => x.me).filter(Boolean))]
+    const [s, running, hoje] = await Promise.all([
+      stats.get(nums.length === 1 ? nums[0] : undefined),
+      engine.runningName ? Promise.resolve(engine.runningName) : campaigns.runningName().catch(() => undefined),
+      nums.length > 1 ? Promise.all(nums.map((n) => stats.sentToday(n))) : Promise.resolve(null)
     ])
-    return { ...s, runningCampaign: running }
+    return {
+      ...s,
+      sentToday: hoje ? hoje.reduce((a, b) => a + b, 0) : s.sentToday,
+      dailyLimit: s.dailyLimit * Math.max(1, nums.length),
+      numbers: nums.length,
+      runningCampaign: running
+    }
   })
 
   handle('dialog:media', async () => {

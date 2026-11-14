@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { AuthState, UpdaterStatus, WaStatus } from '@shared/types'
+import type { AuthState, UpdaterStatus, WaOverview } from '@shared/types'
 import Scene3D, { type Fx } from './three/Scene3D'
 import { lerFx, salvarFx } from './fx'
 import logo from './assets/logo.png'
-import { ToastProvider, useAction } from './lib'
+import { resumoWa, ToastProvider, useAction } from './lib'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Conexao from './pages/Conexao'
@@ -21,16 +21,9 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'config', label: 'Configurações', icon: '⚙' }
 ]
 
-const STATE_LABEL: Record<WaStatus['state'], string> = {
-  connected: 'Conectado',
-  connecting: 'Conectando…',
-  qr: 'Aguardando QR Code',
-  disconnected: 'Desconectado'
-}
-
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ state: 'checking' })
-  const [wa, setWa] = useState<WaStatus>({ provider: 'baileys', state: 'disconnected' })
+  const [wa, setWa] = useState<WaOverview>({ provider: 'baileys', connections: [], online: 0 })
   const [signal, setSignal] = useState(0)
   const [version, setVersion] = useState('')
   const [upd, setUpd] = useState<UpdaterStatus>({ state: 'idle' })
@@ -64,7 +57,7 @@ export default function App() {
 
   return (
     <ToastProvider>
-      <Scene3D connected={signedIn && wa.state === 'connected'} signal={signal} fx={fx} />
+      <Scene3D connected={signedIn && wa.online > 0} signal={signal} fx={fx} />
       <div className="titlebar">
         <span className="brand-mini">FW Cred • Sistema de Disparo</span>
       </div>
@@ -79,7 +72,7 @@ export default function App() {
 
 function Shell(props: {
   auth: AuthState
-  wa: WaStatus
+  wa: WaOverview
   signal: number
   version: string
   upd: UpdaterStatus
@@ -89,6 +82,7 @@ function Shell(props: {
   const { auth, wa, signal, version, upd, fx, setFx } = props
   const [page, setPage] = useState<Page>('dashboard')
   const run = useAction()
+  const resumo = resumoWa(wa)
 
   return (
     <div className="shell">
@@ -115,10 +109,10 @@ function Shell(props: {
             </button>
           )}
           {upd.state === 'downloading' && <div className="upd">Baixando atualização… {upd.percent ?? 0}%</div>}
-          <div className={`pill ${wa.state}`} onClick={() => setPage('conexao')}>
+          <div className={`pill ${resumo.state}`} onClick={() => setPage('conexao')}>
             <span className="dot" />
-            {STATE_LABEL[wa.state]}
-            {wa.me && <small>+{wa.me}</small>}
+            {resumo.label}
+            {resumo.detalhe && <small>{resumo.detalhe}</small>}
           </div>
           <div className="user-chip">
             <div>

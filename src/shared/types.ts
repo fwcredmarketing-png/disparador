@@ -4,13 +4,33 @@ export type ProviderKind = 'baileys' | 'cloud'
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'qr' | 'connected'
 
+/** Situação de UMA conexão de WhatsApp (cada número conectado tem a sua). */
 export interface WaStatus {
+  id: string // identifica a conexão ("cloud" para a API oficial)
   provider: ProviderKind
   state: ConnectionState
   qr?: string // imagem do QR Code (data URL)
-  me?: string // número conectado
+  pairingCode?: string // conexão por código: código de 8 letras para digitar no celular (ex.: ABCD-1234)
+  pairingPhone?: string // número para o qual o código foi gerado
+  me?: string // número da conexão (fica o último conhecido mesmo desconectado)
   name?: string
   error?: string
+  linked?: boolean // já existe sessão pareada salva neste computador (reconecta sem QR/código)
+}
+
+/**
+ * Como a campanha usa os números conectados:
+ * revezar: alterna entre todos (divide o volume e reduz o risco de bloqueio);
+ * reserva: usa um por vez, na ordem da lista; os outros só entram se ele cair ou bater o limite.
+ * Nos dois modos, se um número cair ou for restringido a campanha continua pelos outros.
+ */
+export type WaRotation = 'revezar' | 'reserva'
+
+/** Todas as conexões de WhatsApp deste computador. */
+export interface WaOverview {
+  provider: ProviderKind
+  connections: WaStatus[]
+  online: number // números conectados e prontos para enviar
 }
 
 // ---------- Login (Supabase Auth) ----------
@@ -64,7 +84,11 @@ export interface CloudTemplate {
   language: string // ex: pt_BR
 }
 
+/** Por onde a campanha sai: WhatsApp (números conectados) ou SMS (API externa). */
+export type Channel = 'whatsapp' | 'sms'
+
 export interface CampaignInput {
+  channel?: Channel // padrão: whatsapp
   name: string
   message: string
   mediaPath?: string // arquivo local escolhido; é enviado para o Storage ao criar a campanha
@@ -77,16 +101,19 @@ export interface CampaignInput {
   /**
    * imagem: imagem com o texto como legenda.
    * cartao: cartão clicável (imagem + título + descrição) que abre o link de autocontratação.
+   * botao: (experimental) imagem + texto + botão que abre o link de autocontratação.
    */
   format?: CampaignFormat
   cardTitle?: string
   cardDescription?: string
+  buttonText?: string // texto do botão (formato botao)
 }
 
-export type CampaignFormat = 'imagem' | 'cartao'
+export type CampaignFormat = 'imagem' | 'cartao' | 'botao'
 
 export interface CampaignSummary {
   id: string
+  channel: Channel
   name: string
   message: string
   mediaName?: string
@@ -99,6 +126,7 @@ export interface CampaignSummary {
   format: CampaignFormat
   cardTitle?: string
   cardDescription?: string
+  buttonText?: string
   status: CampaignStatus
   createdAt: number
   createdBy?: string
@@ -128,14 +156,33 @@ export interface SharedSettings {
   contractLink: string // link de autocontratação da equipe (variável {link} nas mensagens)
 }
 
-/** Configurações deste computador (conexão do WhatsApp; o token fica criptografado localmente). */
+/**
+ * SMS por API externa: o sistema faz uma chamada HTTP ao provedor para cada mensagem.
+ * Nos campos de texto, {{telefone}}, {{mensagem}}, {{token}} e {{remetente}} são trocados pelos valores.
+ */
+export interface SmsConfig {
+  preset: 'zenvia' | 'generico' // modelo usado para preencher os campos
+  token: string // chave da API do provedor (fica criptografada neste computador)
+  sender: string // remetente (quando o provedor pede)
+  url: string
+  method: 'POST' | 'GET'
+  headers: string // um por linha: "Nome: valor"
+  body: string // modelo do corpo da requisição
+  bodyType: 'json' | 'form'
+  phoneFormat: 'ddi' | 'e164' | 'nacional' // 5511999998888 | +5511999998888 | 11999998888
+  stripAccents: boolean // tira acentos: cabem 160 letras por SMS em vez de 70
+}
+
+/** Configurações deste computador (conexões; tokens ficam criptografados localmente). */
 export interface LocalSettings {
   provider: ProviderKind
+  rotation: WaRotation
   cloud: {
     token: string
     phoneNumberId: string
     apiVersion: string
   }
+  sms: SmsConfig
 }
 
 export type Settings = SharedSettings & LocalSettings
@@ -143,8 +190,9 @@ export type Settings = SharedSettings & LocalSettings
 export interface Stats {
   totalContacts: number
   optOuts: number
-  sentToday: number // do número conectado neste computador (ou da equipe, se desconectado)
-  dailyLimit: number
+  sentToday: number // soma dos números conectados neste computador (ou da equipe, se nenhum conectado)
+  dailyLimit: number // limite somado dos números conectados (limite por número × quantidade)
+  numbers: number // quantos números entraram na conta de sentToday (0 = equipe toda)
   totalSent: number // equipe toda
   history: { date: string; count: number }[] // últimos 7 dias, equipe toda
   runningCampaign?: string
@@ -203,11 +251,18 @@ export interface Api {
     save(s: Partial<Settings>): Promise<Settings>
   }
   wa: {
-    status(): Promise<WaStatus>
-    connect(): Promise<void>
-    disconnect(): Promise<void>
-    logout(): Promise<void>
-    onStatus(cb: (s: WaStatus) => void): () => void
+    status(): Promise<WaOverview>
+    /** Adiciona mais um número: com telefone, gera o código para digitar no celular; sem, gera o QR Code. */
+    add(phone?: string): Promise<void>
+    /** Conectar por código (sem QR): gera o código para o número informado. */
+    pair(id: string, phone: string): Promise<void>
+    /** Volta a mostrar o QR Code em vez do código. */
+    useQr(id: string): Promise<void>
+    connect(id: string): Promise<void>
+    disconnect(id: string): Promise<void>
+    /** Sai da conta e apaga a sessão desse número deste computador. */
+    remove(id: string): Promise<void>
+    onStatus(cb: (s: WaOverview) => void): () => void
   }
   contacts: {
     list(): Promise<Contact[]>
@@ -223,6 +278,8 @@ export interface Api {
     list(): Promise<CampaignSummary[]>
     log(id: string): Promise<CampaignResult[]>
     create(c: CampaignInput): Promise<CampaignSummary>
+    /** Envia a mensagem que está sendo montada para um número de teste (devolve o número que enviou). */
+    test(c: CampaignInput, phone: string): Promise<string>
     start(id: string): Promise<void>
     pause(id: string): Promise<void>
     cancel(id: string): Promise<void>
@@ -233,6 +290,10 @@ export interface Api {
   }
   stats: {
     get(): Promise<Stats>
+  }
+  sms: {
+    /** Envia um SMS de teste com a configuração salva. */
+    test(phone: string): Promise<void>
   }
   dialog: {
     pickMedia(): Promise<MediaInfo | null>
