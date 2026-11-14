@@ -1452,6 +1452,29 @@ body.fx-desligado .qr-frame .scanline {
 .sms-avancado > * + * {
   margin-top: 10px;
 }
+.sms-auth {
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  padding: 10px 14px 14px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.sms-auth legend {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 0 6px;
+}
+.sms-auth p {
+  margin: 0;
+}
+.sms-card .form-row > .tip {
+  flex: 2;
+  min-width: 240px;
+  align-self: flex-end;
+}
 textarea.mono {
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
   font-size: 12.5px;

@@ -199,8 +199,8 @@ export class CampaignEngine extends EventEmitter {
     if (!numero) throw new Error('Número de teste inválido. Digite com DDD, por exemplo: 11 99999-8888.')
     const molde = await this.validarMensagem(input)
     if (molde.canal === 'sms') {
-      await this.sms.send(numero, textoSms(molde, { nome: 'Teste', telefone: numero }))
-      return SMS_SENDER
+      const r = await this.sms.send(numero, textoSms(molde, { nome: 'Teste', telefone: numero }))
+      return r.test ? `${SMS_SENDER}-sandbox` : SMS_SENDER
     }
     const x = this.wa.senders()[0]
     if (!x) throw new Error('Conecte pelo menos um WhatsApp para enviar o teste')

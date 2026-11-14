@@ -169,7 +169,11 @@ export default function Campanhas({ wa }: { wa: WaOverview }) {
     }
     setTestando(true)
     const por = await run(() => window.api.campaigns.test(form, telTeste)).finally(() => setTestando(false))
-    if (por) toast(por === 'sms' ? 'SMS de teste enviado. Confira no celular.' : `Teste enviado por ${fmtPhone(por)}. Confira no celular de teste.`, 'ok')
+    if (!por) return
+    if (por === 'sms-sandbox')
+      toast('SMS aceito pelo provedor em modo TESTE (chave test_): nada foi enviado de verdade.', 'ok')
+    else if (por === 'sms') toast('SMS de teste enviado. Confira no celular.', 'ok')
+    else toast(`Teste enviado por ${fmtPhone(por)}. Confira no celular de teste.`, 'ok')
   }
   // no cartão, o link vai no fim do texto se a mensagem não tiver {link}
   const textoCartao = useMemo(() => {

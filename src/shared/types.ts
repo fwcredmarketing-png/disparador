@@ -158,11 +158,19 @@ export interface SharedSettings {
 
 /**
  * SMS por API externa: o sistema faz uma chamada HTTP ao provedor para cada mensagem.
- * Nos campos de texto, {{telefone}}, {{mensagem}}, {{token}} e {{remetente}} são trocados pelos valores.
+ * Nos campos de texto, {{telefone}}, {{mensagem}}, {{token}}, {{remetente}} e {{bearer}} são trocados pelos valores.
  */
 export interface SmsConfig {
-  preset: 'zenvia' | 'generico' // modelo usado para preencher os campos
+  preset: 'smsgo' | 'zenvia' | 'generico' // modelo usado para preencher os campos
   token: string // chave da API do provedor (fica criptografada neste computador)
+  /**
+   * Autenticação em 2 passos (opcional): antes de enviar, troca a chave por um token temporário
+   * (ex.: SMSGo). O token vira {{bearer}} nos cabeçalhos/corpo do envio. Vazio = não usa.
+   */
+  authUrl: string
+  authHeaders: string // um por linha: "Nome: valor"
+  authField: string // campo da resposta com o token (ex.: token)
+  authHours: number // por quanto tempo reaproveitar o token
   sender: string // remetente (quando o provedor pede)
   url: string
   method: 'POST' | 'GET'
@@ -292,8 +300,8 @@ export interface Api {
     get(): Promise<Stats>
   }
   sms: {
-    /** Envia um SMS de teste com a configuração salva. */
-    test(phone: string): Promise<void>
+    /** Envia um SMS de teste com a configuração salva (test=true: provedor em modo sandbox, nada foi enviado de verdade). */
+    test(phone: string): Promise<{ test: boolean }>
   }
   dialog: {
     pickMedia(): Promise<MediaInfo | null>

@@ -38,6 +38,9 @@ const defaults: Omit<LocalData, 'machineId' | 'conexoes'> = {
   session: {}
 }
 
+/** Configurações de SMS salvas pela 1.0.7 não tinham autenticação em 2 passos: continuam sem. */
+const SEM_AUTH_ANTIGO: Partial<SmsConfig> = { authUrl: '', authHeaders: '', authField: 'token', authHours: 24 }
+
 /**
  * A pasta tem uma sessão do WhatsApp já pareada (QR Code lido ou código digitado no celular)?
  * "account" só existe depois do pareamento: ao pedir o código, o Baileys já grava "me", mas ainda não está pareado.
@@ -97,7 +100,8 @@ class LocalStore {
       provider: raw.provider ?? defaults.provider,
       rotation: raw.rotation === 'reserva' ? 'reserva' : 'revezar',
       cloud: { ...defaults.cloud, ...(raw.cloud ?? {}) },
-      sms: { ...defaults.sms, ...(raw.sms ?? {}) },
+      // sem chave salva = nunca configurado: usa o modelo padrão atual (SMSGo)
+      sms: raw.sms?.token ? { ...defaults.sms, ...SEM_AUTH_ANTIGO, ...raw.sms } : defaults.sms,
       conexoes,
       session: raw.session ?? {}
     }

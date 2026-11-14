@@ -1,8 +1,28 @@
 // SMS: modelos de provedor e contas de tamanho (usados pela interface e pelo envio)
 import type { SmsConfig } from './types'
 
+type Modelo = Omit<SmsConfig, 'token' | 'sender' | 'stripAccents'> & { nome: string }
+
+const SEM_AUTH = { authUrl: '', authHeaders: '', authField: 'token', authHours: 24 }
+
 /** Modelos prontos. Confira sempre na documentação do seu provedor. */
-export const SMS_PRESETS: Record<SmsConfig['preset'], Omit<SmsConfig, 'token' | 'sender' | 'stripAccents'> & { nome: string }> = {
+export const SMS_PRESETS: Record<SmsConfig['preset'], Modelo> = {
+  // SMSGo (https://api.smsgo.com.br): a SMSGo-key vira um token Bearer de 48 h em /v1/auth/token.
+  // Chave com prefixo test_ = sandbox (não gasta crédito nem envia SMS de verdade).
+  smsgo: {
+    nome: 'SMSGo',
+    preset: 'smsgo',
+    url: 'https://api.smsgo.com.br/v1/sms/send/single',
+    method: 'POST',
+    headers: 'Authorization: Bearer {{bearer}}\nAccept: application/json',
+    body: '{"phone": "{{telefone}}", "message": "{{mensagem}}", "from": "{{remetente}}", "sms_type_id": 4}',
+    bodyType: 'json',
+    phoneFormat: 'e164',
+    authUrl: 'https://api.smsgo.com.br/v1/auth/token',
+    authHeaders: 'SMSGo-key: {{token}}\nAccept: application/json',
+    authField: 'token',
+    authHours: 47 // o token vale 48 h; renova um pouco antes
+  },
   zenvia: {
     nome: 'Zenvia',
     preset: 'zenvia',
@@ -11,7 +31,8 @@ export const SMS_PRESETS: Record<SmsConfig['preset'], Omit<SmsConfig, 'token' | 
     headers: 'X-API-TOKEN: {{token}}',
     body: '{"from": "{{remetente}}", "to": "{{telefone}}", "contents": [{"type": "text", "text": "{{mensagem}}"}]}',
     bodyType: 'json',
-    phoneFormat: 'ddi'
+    phoneFormat: 'ddi',
+    ...SEM_AUTH
   },
   generico: {
     nome: 'Outro provedor (genérico)',
@@ -21,14 +42,37 @@ export const SMS_PRESETS: Record<SmsConfig['preset'], Omit<SmsConfig, 'token' | 
     headers: 'Authorization: Bearer {{token}}',
     body: '{"to": "{{telefone}}", "message": "{{mensagem}}", "from": "{{remetente}}"}',
     bodyType: 'json',
-    phoneFormat: 'ddi'
+    phoneFormat: 'ddi',
+    ...SEM_AUTH
   }
 }
 
-export const SMS_PADRAO: SmsConfig = { ...SMS_PRESETS.zenvia, token: '', sender: '', stripAccents: true }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const { nome: _nome, ...SMSGO } = SMS_PRESETS.smsgo
+export const SMS_PADRAO: SmsConfig = { ...SMSGO, token: '', sender: '', stripAccents: true }
 
-/** Configurado o suficiente para tentar enviar. */
-export const smsConfigurado = (c?: SmsConfig): boolean => !!c?.url?.trim() && /^https?:\/\//i.test(c.url.trim())
+/** Tipos de SMS da SMSGo (sms_type_id): o preço e a prioridade mudam conforme o tipo. */
+export const SMSGO_TIPOS = [
+  { id: 4, nome: 'Marketing — entrega em até 15 min (padrão)' },
+  { id: 2, nome: 'Token — entrega em até 2 min (avisos urgentes)' }
+]
+const RE_TIPO = /("sms_type_id"\s*:\s*)(\d+)/
+export const lerTipoSmsGo = (body: string): number | undefined => {
+  const m = body.match(RE_TIPO)
+  return m ? Number(m[2]) : undefined
+}
+export const trocarTipoSmsGo = (body: string, id: number): string =>
+  RE_TIPO.test(body) ? body.replace(RE_TIPO, `$1${id}`) : body
+
+const usaToken = (c: SmsConfig) =>
+  [c.url, c.headers, c.body, c.authUrl, c.authHeaders].some((t) => /\{\{\s*token\s*\}\}/.test(t ?? ''))
+
+/** Configurado o suficiente para tentar enviar (endereço válido e, se os modelos usam a chave, a chave preenchida). */
+export const smsConfigurado = (c?: SmsConfig): boolean =>
+  !!c?.url?.trim() &&
+  /^https?:\/\//i.test(c.url.trim()) &&
+  (!c.authUrl?.trim() || /^https?:\/\//i.test(c.authUrl.trim())) &&
+  (!usaToken(c) || !!c.token?.trim())
 
 export const semAcentos = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '')
 

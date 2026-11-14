@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Settings, SmsConfig, WaOverview, WaRotation, WaStatus } from '@shared/types'
-import { SMS_PRESETS, smsConfigurado } from '@shared/sms'
+import { lerTipoSmsGo, SMS_PRESETS, SMSGO_TIPOS, smsConfigurado, trocarTipoSmsGo } from '@shared/sms'
 import { fmtPhone, useAction, useToast } from '../lib'
 
 const ESTADO: Record<WaStatus['state'], string> = {
@@ -211,9 +211,20 @@ function SmsCard({ inicial, salvar }: { inicial: SmsConfig; salvar: (c: SmsConfi
     return s
   }
   const testar = async () => {
-    if (await gravar()) await run(() => window.api.sms.test(tel), 'SMS de teste enviado. Confira no celular.')
+    if (!(await gravar())) return
+    const r = await run(() => window.api.sms.test(tel))
+    if (!r) return
+    toast(
+      r.test
+        ? 'Integração OK! O provedor aceitou o SMS em modo TESTE (chave de sandbox): nada foi enviado nem cobrado. Troque pela chave real para disparar.'
+        : 'SMS de teste enviado. Confira no celular.',
+      'ok'
+    )
   }
   const pronto = smsConfigurado(salvo)
+  const smsgo = c.preset === 'smsgo'
+  const tipo = lerTipoSmsGo(c.body)
+  const sandbox = c.token.trim().startsWith('test_')
 
   return (
     <section className="card glass sms-card">
@@ -237,14 +248,38 @@ function SmsCard({ inicial, salvar }: { inicial: SmsConfig; salvar: (c: SmsConfi
           </select>
         </label>
         <label>
-          Token / chave da API
-          <input type="password" value={c.token} onChange={(e) => set({ token: e.target.value })} placeholder="cole aqui" />
+          {smsgo ? 'Chave da API (SMSGo-key)' : 'Token / chave da API'}
+          <input type="password" value={c.token} onChange={(e) => set({ token: e.target.value.trim() })} placeholder="cole aqui" />
         </label>
         <label>
           Remetente (se o provedor pedir)
           <input value={c.sender} onChange={(e) => set({ sender: e.target.value })} placeholder="ex.: FWCRED" />
         </label>
       </div>
+      {smsgo && (
+        <div className="form-row">
+          <label>
+            Tipo de SMS
+            <select value={tipo ?? 4} onChange={(e) => set({ body: trocarTipoSmsGo(c.body, Number(e.target.value)) })}>
+              {SMSGO_TIPOS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="tip small">
+            Na SMSGo, a chave fica em <b>Minha conta → API</b>. Para validar sem gastar crédito, use primeiro a{' '}
+            <b>chave de teste</b> (começa com <code>test_</code>) e depois troque pela chave real.
+          </div>
+        </div>
+      )}
+      {sandbox && (
+        <div className="tip warn small">
+          Chave de <b>teste</b> (sandbox): os envios são aceitos e registrados, mas <b>nenhum SMS chega</b> nos contatos.
+          Troque pela chave real antes de disparar campanhas.
+        </div>
+      )}
       <label className="check">
         <input type="checkbox" checked={c.stripAccents} onChange={(e) => set({ stripAccents: e.target.checked })} />
         Tirar acentos das mensagens (cabem 160 letras por SMS em vez de 70 — o SMS sai mais barato)
@@ -289,10 +324,35 @@ function SmsCard({ inicial, salvar }: { inicial: SmsConfig; salvar: (c: SmsConfi
             <textarea rows={4} className="mono" value={c.body} onChange={(e) => set({ body: e.target.value })} />
           </label>
         )}
+        <fieldset className="sms-auth">
+          <legend>Autenticação em 2 passos (opcional)</legend>
+          <p className="muted small">
+            Alguns provedores (como a SMSGo) trocam a chave por um token temporário antes do envio. O token vira{' '}
+            <code>{'{{bearer}}'}</code> e é renovado sozinho. Deixe o endereço vazio se o seu provedor não usa.
+          </p>
+          <label>
+            Endereço do token (GET)
+            <input value={c.authUrl} onChange={(e) => set({ authUrl: e.target.value })} placeholder="https://api.seuprovedor.com/token" />
+          </label>
+          <div className="form-row">
+            <label>
+              Campo do token na resposta
+              <input value={c.authField} onChange={(e) => set({ authField: e.target.value })} placeholder="token" />
+            </label>
+            <label>
+              Reaproveitar o token por (horas)
+              <input type="number" min={0.1} step={1} value={c.authHours} onChange={(e) => set({ authHours: +e.target.value })} />
+            </label>
+          </div>
+          <label>
+            Cabeçalhos do pedido de token
+            <textarea rows={2} className="mono" value={c.authHeaders} onChange={(e) => set({ authHeaders: e.target.value })} />
+          </label>
+        </fieldset>
         <p className="muted small">
           Variáveis: <code>{'{{telefone}}'}</code> <code>{'{{mensagem}}'}</code> <code>{'{{token}}'}</code>{' '}
-          <code>{'{{remetente}}'}</code> — o sistema troca pelos valores (com o escape certo para JSON, formulário ou URL).
-          Resposta 2xx do provedor conta como enviado. Confira os campos na documentação do seu provedor.
+          <code>{'{{remetente}}'}</code> <code>{'{{bearer}}'}</code> — o sistema troca pelos valores (com o escape certo para
+          JSON, formulário ou URL); campos vazios do JSON não são enviados. Resposta 2xx do provedor conta como enviado.
         </p>
       </details>
       <div className="row">
