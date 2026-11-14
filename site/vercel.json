@@ -1,0 +1,5 @@
+{
+  "cleanUrls": true,
+  "rewrites": [{ "source": "/baixar", "destination": "/api/baixar" }],
+  "headers": [{ "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }] }]
+}

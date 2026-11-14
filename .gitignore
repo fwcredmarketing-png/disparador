@@ -8,3 +8,4 @@ Thumbs.db
 # Sessões do WhatsApp nunca vão para o GitHub
 auth/
 wa-auth/
+.vercel

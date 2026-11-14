@@ -120,6 +120,14 @@ npm run lancar-versao:minor    # 1.0.1 → 1.1.0 (novidades)
 3. Acompanhe a aba **Actions** no GitHub. Em cerca de 5 minutos a Release aparece com o instalador `SistemaDeDisparo-Setup-X.Y.Z.exe`.
 4. **Primeira instalação** em cada computador: baixe o `.exe` na página de Releases e instale. Depois disso as atualizações são automáticas: o app verifica ao abrir e a cada 30 minutos.
 
+### Página de download (Vercel)
+
+A pasta [site/](site/) é uma página simples com o botão **Baixar para Windows**. O link `/baixar`
+sempre entrega o instalador mais recente do GitHub Releases, então ele nunca precisa ser trocado.
+
+Para publicar: em vercel.com → **Add New → Project** → importe o repositório `disparador` →
+em **Root Directory** escolha `site` → **Deploy**. A cada push a Vercel atualiza a página sozinha.
+
 > O Windows pode mostrar "O Windows protegeu o computador" porque o instalador não tem
 > assinatura digital. Clique em **Mais informações → Executar assim mesmo**. Para remover
 > esse aviso, é preciso comprar um certificado de assinatura de código.

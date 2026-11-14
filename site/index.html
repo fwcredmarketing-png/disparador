@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Sistema de Disparo • FW Cred</title>
+    <meta name="description" content="Download do Sistema de Disparo da FW Cred para Windows." />
+    <link rel="icon" href="/logo.png" />
+    <style>
+      :root {
+        --bg: #050814;
+        --panel: rgba(12, 20, 40, 0.72);
+        --line: rgba(120, 180, 255, 0.14);
+        --text: #e6f1ff;
+        --muted: #8ba3c7;
+        --green: #25d366;
+        --green-2: #1fb457;
+        --gold: #c9a24a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        background:
+          radial-gradient(900px 600px at 80% 10%, rgba(201, 162, 74, 0.12), transparent 60%),
+          radial-gradient(1100px 800px at 20% 90%, #0b1a35 0%, var(--bg) 65%);
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: 'Segoe UI Variable', 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 32px 16px;
+      }
+      main {
+        width: min(520px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 36px 28px 28px;
+        text-align: center;
+        backdrop-filter: blur(14px);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+      }
+      .logo {
+        width: 104px;
+        height: 104px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow:
+          0 0 0 3px rgba(201, 162, 74, 0.6),
+          0 0 44px rgba(201, 162, 74, 0.35);
+      }
+      h1 {
+        margin: 18px 0 4px;
+        font-size: 26px;
+        letter-spacing: 0.02em;
+      }
+      .sub {
+        margin: 0 0 26px;
+        color: var(--muted);
+      }
+      .btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        width: 100%;
+        padding: 16px 20px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, var(--green), var(--green-2));
+        color: #04210f;
+        font-size: 17px;
+        font-weight: 700;
+        text-decoration: none;
+        box-shadow: 0 10px 30px rgba(37, 211, 102, 0.3);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 36px rgba(37, 211, 102, 0.4);
+      }
+      .btn:focus-visible {
+        outline: 3px solid var(--gold);
+        outline-offset: 3px;
+      }
+      .meta {
+        margin: 12px 0 0;
+        min-height: 20px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      ol {
+        margin: 28px 0 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: passo;
+        text-align: left;
+        display: grid;
+        gap: 12px;
+      }
+      li {
+        counter-increment: passo;
+        position: relative;
+        padding: 12px 14px 12px 50px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(20, 32, 60, 0.45);
+        line-height: 1.45;
+        font-size: 14px;
+      }
+      li::before {
+        content: counter(passo);
+        position: absolute;
+        left: 14px;
+        top: 12px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1a1405;
+        background: var(--gold);
+      }
+      li b {
+        color: #fff;
+      }
+      footer {
+        margin-top: 22px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/logo.png" class="logo" alt="FW Cred" width="104" height="104" />
+      <h1>Sistema de Disparo</h1>
+      <p class="sub">FW Cred • uso interno da equipe</p>
+
+      <a class="btn" href="/baixar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        Baixar para Windows
+      </a>
+      <p class="meta" id="meta">Windows 10 ou 11 (64 bits)</p>
+
+      <ol>
+        <li>Clique em <b>Baixar para Windows</b> e abra o arquivo baixado.</li>
+        <li>
+          Se aparecer <b>"O Windows protegeu o computador"</b>, clique em <b>Mais informações</b> e depois em
+          <b>Executar assim mesmo</b>.
+        </li>
+        <li>Conclua a instalação e entre com o <b>e-mail e a senha</b> liberados pelo administrador.</li>
+      </ol>
+
+      <footer>
+        Instale só uma vez: depois disso o sistema se atualiza sozinho sempre que sair uma versão nova.
+      </footer>
+    </main>
+
+    <script>
+      fetch('/api/versao')
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((v) => {
+          const data = new Date(v.publicadoEm).toLocaleDateString('pt-BR')
+          document.getElementById('meta').textContent =
+            'Versão ' + v.versao + ' • ' + v.tamanhoMB + ' MB • publicada em ' + data + ' • Windows 10/11 (64 bits)'
+        })
+        .catch(() => {})
+    </script>
+  </body>
+</html>
