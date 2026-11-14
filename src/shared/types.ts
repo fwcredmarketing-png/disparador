@@ -246,6 +246,7 @@ export interface SepMapa {
   tempoUnidade: 'anos' | 'meses'
   nascimento: number | null // data de nascimento
   idade: number | null // idade (quando não há data de nascimento)
+  valor: number | null // valor em R$ (margem, salário, renda…)
 }
 
 /** Critérios de separação (null = não usa o critério). */
@@ -253,6 +254,7 @@ export interface SepCriterios {
   tempoMinimoAnos: number | null
   idadeMin: number | null
   idadeMax: number | null
+  valorMinimo: number | null // aprova só quem tem valor ACIMA disto (R$)
 }
 
 export interface SepArquivo {
@@ -269,6 +271,7 @@ export interface SepLinha {
   telefone?: string // celular escolhido (5511999998888)
   tempo?: string // ex.: "3 anos e 2 meses"
   idade?: number
+  valor?: number // em R$
   ok: boolean
   motivo?: string
 }

@@ -4,7 +4,7 @@ import type { Celula, Tabela } from './planilha'
 /**
  * Separação de números para o disparo de WhatsApp.
  * Para cada linha da planilha: escolhe um celular válido, descarta repetidos e aplica os critérios
- * (tempo mínimo de empresa, faixa de idade). Tudo acontece neste computador; só os aprovados vão para Contatos.
+ * (tempo mínimo de empresa, faixa de idade, valor acima de R$ X). Tudo acontece neste computador; só os aprovados vão para Contatos.
  */
 
 const sem = (s: string) =>
@@ -97,6 +97,45 @@ export function descreverMeses(m: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Valores em reais
+// ---------------------------------------------------------------------------
+
+/**
+ * Valor em R$ escrito de qualquer jeito comum: "R$ 1.234,56", "1234,56", "1.500", "1234.56", "(50,00)" ou
+ * número do Excel. Com ponto e vírgula juntos, o último é o separador dos centavos.
+ */
+export function lerValor(v: Celula | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  const s = v.trim()
+  const negativo = /^-|^\(.*\)$|-$/.test(s.replace(/r\$\s*/i, '').trim())
+  let d = s.replace(/[^\d.,]/g, '')
+  if (!/\d/.test(d)) return null
+  const ponto = d.lastIndexOf('.')
+  const virgula = d.lastIndexOf(',')
+  if (ponto >= 0 && virgula >= 0) {
+    // 1.234,56 (Brasil) ou 1,234.56 (EUA): o que vem por último separa os centavos
+    d = ponto > virgula ? d.replace(/,/g, '') : d.replace(/\./g, '').replace(',', '.')
+  } else if (virgula >= 0) {
+    // só vírgula: "100,50" é decimal; "1,234,567" (várias) é milhar
+    d = (d.match(/,/g)!.length > 1 ? d.replace(/,/g, '') : d.replace(',', '.'))
+  } else if (ponto >= 0) {
+    // só ponto: "1.500" e "1.234.567" são milhar (Brasil); "100.5" e "1234.56" são decimal
+    const depois = d.length - ponto - 1
+    if (d.match(/\./g)!.length > 1 || depois === 3) d = d.replace(/\./g, '')
+  }
+  const n = Number(d)
+  if (!Number.isFinite(n)) return null
+  return negativo ? -n : n
+}
+
+/** 1234.5 → "R$ 1.234,50". */
+export function reais(v: number): string {
+  const [int, dec] = Math.abs(v).toFixed(2).split('.')
+  return `${v < 0 ? '-' : ''}R$ ${int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec}`
+}
+
+// ---------------------------------------------------------------------------
 // Telefones
 // ---------------------------------------------------------------------------
 
@@ -127,11 +166,30 @@ export function celular(v: Celula | undefined, ddd?: Celula): string | null {
 const RE = {
   nome: /^(nome|nome completo|cliente|nome cliente|nome do cliente|funcionario|nome funcionario|colaborador|beneficiario|name)\b|^nome/,
   ddd: /^(ddd|dd)\b/,
-  telefone: /(tel|fone|cel|whats|contato|phone|movel)/,
+  telefone: /\b(tel|fone|cel|whats|zap|contato|phone|movel|mobile)/, // início de palavra: "parcela" não é "cel"
   admissao: /(admiss|admis|dt adm|data adm|inicio vinculo|data inicio|entrada empresa)/,
   tempo: /(tempo.*(empresa|servico|casa|trabalho|vinculo)|meses.*empresa|anos.*empresa|tempo de casa|antiguidade)/,
   nascimento: /(nasc|nascimento|dt nasc|data nasc|aniversario|birth)/,
-  idade: /^(idade|age)\b/
+  idade: /^(idade|age)\b/,
+  // valor em R$, do mais provável para o menos provável (base de crédito: margem primeiro)
+  valor: [
+    /margem/,
+    /^(valor|vlr|vl|valores)\b|\bvalor\b/,
+    /(salario|renda|remuneracao|vencimento|provento|liquido|bruto)/,
+    /(saldo|limite|credito)/
+  ],
+  // parece valor mas não é (datas, quantidades, códigos, percentuais…)
+  naoValor: /(data|dt|cpf|cnpj|qtd|quant|numero|num |^n |^nr|cod|prazo|taxa|percent|parcelas|meses|dias|nb\b|especie|tipo|banco|agencia|conta|matricula)/
+}
+
+/** Quanto da coluna tem cara de dinheiro ("R$ …"). */
+function pareceDinheiro(linhas: Celula[][], i: number): number {
+  const cheias = linhas
+    .slice(0, 200)
+    .map((l) => texto(l[i]))
+    .filter(Boolean)
+  if (!cheias.length) return 0
+  return cheias.filter((v) => /r\$/i.test(v)).length / cheias.length
 }
 
 /** Quanto da coluna parece telefone (amostra). */
@@ -174,6 +232,20 @@ export function detectarColunas(t: Tabela): SepMapa {
   const exato = nomes.findIndex((n) => /^(nome|nome completo|nome do cliente|nome cliente|cliente)$/.test(n))
   const nome =
     exato >= 0 ? exato : acha(new RegExp(RE.nome.source), [...usados, ...telefones, ...nomes.map((n, i) => (/mae|pai|empresa|fantasia|social|empregador/.test(n) ? i : -1)).filter((i) => i >= 0)])
+  // valor: pelo cabeçalho (margem > valor > salário/renda > saldo/limite); senão, a coluna cheia de "R$"
+  const ocupadas = [...usados, ...telefones, tempo, idade, nome].filter((x): x is number => x !== null)
+  let valor: number | null = null
+  for (const re of RE.valor) {
+    const i = nomes.findIndex((n, k) => !ocupadas.includes(k) && re.test(n) && !RE.naoValor.test(n))
+    if (i >= 0) {
+      valor = i
+      break
+    }
+  }
+  if (valor === null) {
+    const i = t.colunas.findIndex((_, k) => !ocupadas.includes(k) && pareceDinheiro(t.linhas, k) >= 0.6)
+    if (i >= 0) valor = i
+  }
   return {
     nome,
     telefones,
@@ -182,7 +254,8 @@ export function detectarColunas(t: Tabela): SepMapa {
     tempo,
     tempoUnidade,
     nascimento,
-    idade
+    idade,
+    valor
   }
 }
 
@@ -210,6 +283,9 @@ export function separar(t: Tabela, mapa: SepMapa, crit: SepCriterios, hoje = new
     throw new Error('Para o tempo de empresa, escolha a coluna da data de admissão (ou do tempo de empresa)')
   if (usaIdade && mapa.nascimento === null && mapa.idade === null)
     throw new Error('Para a idade, escolha a coluna da data de nascimento (ou da idade)')
+  const usaValor = crit.valorMinimo !== null && crit.valorMinimo !== undefined
+  if (usaValor && (mapa.valor === null || mapa.valor === undefined))
+    throw new Error('Para o valor, escolha a coluna do valor (margem, salário…)')
 
   const minMeses = usaTempo ? Math.round(crit.tempoMinimoAnos! * 12) : 0
   const faixa =
@@ -243,13 +319,28 @@ export function separar(t: Tabela, mapa: SepMapa, crit: SepCriterios, hoje = new
       if (vistos.has(tel)) return { geral: 'Telefone repetido na planilha', detalhe: 'Telefone repetido na planilha' }
       vistos.add(tel)
 
-      // tempo de empresa
+      // lê tudo antes de julgar, para o relatório mostrar tempo, idade e valor até de quem foi reprovado
       let meses: number | null = null
       if (mapa.admissao !== null) {
         const adm = lerData(l[mapa.admissao], hoje)
         if (adm && adm <= hoje) meses = mesesEntre(adm, hoje)
       } else if (mapa.tempo !== null) meses = lerTempo(l[mapa.tempo], mapa.tempoUnidade)
       if (meses !== null) item.tempo = descreverMeses(meses)
+
+      let idade: number | null = null
+      if (mapa.nascimento !== null) {
+        const nasc = lerData(l[mapa.nascimento], hoje)
+        if (nasc && nasc < hoje) idade = Math.floor(mesesEntre(nasc, hoje) / 12)
+      } else if (mapa.idade !== null) {
+        const n = Number(texto(l[mapa.idade]).replace(/[^\d]/g, ''))
+        idade = texto(l[mapa.idade]) && Number.isFinite(n) && n > 0 && n < 130 ? n : null
+      }
+      if (idade !== null) item.idade = idade
+
+      const valor = mapa.valor !== null ? lerValor(l[mapa.valor]) : null
+      if (valor !== null) item.valor = valor
+
+      // tempo de empresa
       if (usaTempo) {
         if (meses === null)
           return { geral: 'Sem data de admissão / tempo de empresa', detalhe: 'Sem data de admissão / tempo de empresa' }
@@ -261,19 +352,20 @@ export function separar(t: Tabela, mapa: SepMapa, crit: SepCriterios, hoje = new
       }
 
       // idade
-      let idade: number | null = null
-      if (mapa.nascimento !== null) {
-        const nasc = lerData(l[mapa.nascimento], hoje)
-        if (nasc && nasc < hoje) idade = Math.floor(mesesEntre(nasc, hoje) / 12)
-      } else if (mapa.idade !== null) {
-        const n = Number(texto(l[mapa.idade]).replace(/[^\d]/g, ''))
-        idade = texto(l[mapa.idade]) && Number.isFinite(n) && n > 0 && n < 130 ? n : null
-      }
-      if (idade !== null) item.idade = idade
       if (usaIdade) {
         if (idade === null) return { geral: 'Sem data de nascimento / idade', detalhe: 'Sem data de nascimento / idade' }
         if ((crit.idadeMin !== null && idade < crit.idadeMin) || (crit.idadeMax !== null && idade > crit.idadeMax))
           return { geral: `Idade fora de ${faixa}`, detalhe: `Idade fora de ${faixa} (${idade} anos)` }
+      }
+
+      // valor: tem de passar de R$ X (R$ X exato não passa)
+      if (usaValor) {
+        if (valor === null) return { geral: 'Sem valor', detalhe: 'Sem valor' }
+        if (valor <= crit.valorMinimo!)
+          return {
+            geral: `Valor até ${reais(crit.valorMinimo!)}`,
+            detalhe: `Valor até ${reais(crit.valorMinimo!)} (${reais(valor)})`
+          }
       }
       return null
     })()
@@ -316,14 +408,15 @@ export function csvAprovados(s: Separacao): string {
 /** Planilha original + resultado de cada linha (para conferir ou guardar). */
 export function csvRelatorio(t: Tabela, s: Separacao): string {
   return csv([
-    [...t.colunas, 'Resultado', 'Motivo', 'Celular (WhatsApp)', 'Tempo de empresa', 'Idade'],
+    [...t.colunas, 'Resultado', 'Motivo', 'Celular (WhatsApp)', 'Tempo de empresa', 'Idade', 'Valor lido'],
     ...s.linhas.map((x) => [
       ...t.colunas.map((_, i) => x.original[i] ?? ''),
       x.ok ? 'APROVADO' : 'REPROVADO',
       x.motivo ?? '',
       x.telefone ?? '',
       x.tempo ?? '',
-      x.idade ?? ''
+      x.idade ?? '',
+      x.valor !== undefined ? reais(x.valor) : ''
     ])
   ])
 }
@@ -331,8 +424,8 @@ export function csvRelatorio(t: Tabela, s: Separacao): string {
 /** Modelo de planilha com as colunas que a separação reconhece. */
 export function csvModelo(): string {
   return csv([
-    ['Nome', 'Telefone', 'Data de admissão', 'Data de nascimento'],
-    ['Maria da Silva (exemplo)', '(11) 99999-0001', '10/02/2019', '25/07/1988'],
-    ['João Souza (exemplo)', '21 98888-0002', '03/09/2024', '14/01/1995']
+    ['Nome', 'Telefone', 'Data de admissão', 'Data de nascimento', 'Valor'],
+    ['Maria da Silva (exemplo)', '(11) 99999-0001', '10/02/2019', '25/07/1988', 'R$ 350,00'],
+    ['João Souza (exemplo)', '21 98888-0002', '03/09/2024', '14/01/1995', 'R$ 80,00']
   ])
 }

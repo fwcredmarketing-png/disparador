@@ -3,8 +3,10 @@ import type { SepArquivo, SepCriterios, SepLinha, SepMapa, SepResultado } from '
 import { fmtPhone, useAction, useToast } from '../lib'
 import type { Page } from '../App'
 
-/** Critérios padrão: 3 anos de empresa; idade de 26 a 54 (como no filtro que a equipe já usava). */
-const PADRAO = { tempo: 3, idadeMin: 26, idadeMax: 54 }
+/** Critérios padrão da FW Cred: 3 anos ou mais de empresa, idade de 26 a 50 anos e valor acima de R$ 100. */
+const PADRAO = { tempo: 3, idadeMin: 26, idadeMax: 50, valor: 100 }
+
+const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 const hoje = () => {
   const d = new Date()
@@ -39,6 +41,8 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
   const [tempo, setTempo] = useState(PADRAO.tempo)
   const [idadeMin, setIdadeMin] = useState(PADRAO.idadeMin)
   const [idadeMax, setIdadeMax] = useState(PADRAO.idadeMax)
+  const [usarValor, setUsarValor] = useState(false)
+  const [valorMin, setValorMin] = useState(PADRAO.valor)
   const [res, setRes] = useState<SepResultado | null>(null)
   const [ver, setVer] = useState<'todos' | 'aprovados' | 'reprovados'>('todos')
   const [etiqueta, setEtiqueta] = useState('')
@@ -48,7 +52,8 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
   const crit: SepCriterios = {
     tempoMinimoAnos: usarTempo ? tempo : null,
     idadeMin: usarIdade ? idadeMin : null,
-    idadeMax: usarIdade ? idadeMax : null
+    idadeMax: usarIdade ? idadeMax : null,
+    valorMinimo: usarValor ? valorMin : null
   }
   const mudouAlgo = () => {
     setRes(null)
@@ -77,13 +82,16 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
     const temIdade = a.mapa.nascimento !== null || a.mapa.idade !== null
     setUsarTempo(temTempo)
     setUsarIdade(temIdade)
+    const temValor = a.mapa.valor !== null
+    setUsarValor(temValor)
     setEtiqueta(`aptos-${tempo}anos-${hoje()}`)
     setRes(null)
     if (a.mapa.telefones.length) {
       await separarAgora(a.mapa, {
         tempoMinimoAnos: temTempo ? tempo : null,
         idadeMin: temIdade ? idadeMin : null,
-        idadeMax: temIdade ? idadeMax : null
+        idadeMax: temIdade ? idadeMax : null,
+        valorMinimo: temValor ? valorMin : null
       })
     }
   }
@@ -100,6 +108,7 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
   const linhas: SepLinha[] = (res?.amostra ?? []).filter((l) => (ver === 'todos' ? true : ver === 'aprovados' ? l.ok : !l.ok))
   const semTempo = usarTempo && mapa && mapa.admissao === null && mapa.tempo === null
   const semIdade = usarIdade && mapa && mapa.nascimento === null && mapa.idade === null
+  const semValor = usarValor && mapa && mapa.valor === null
 
   return (
     <div className="page">
@@ -124,13 +133,14 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
           <ol className="passos">
             <li>
               Escolha a <b>planilha da base</b> (Excel .xlsx ou .csv). Ela precisa ter o <b>telefone</b> e as colunas dos
-              critérios: <b>data de admissão</b> (ou tempo de empresa) e, se quiser filtrar idade, <b>data de nascimento</b>{' '}
-              (ou idade).
+              critérios: <b>data de admissão</b> (ou tempo de empresa), <b>data de nascimento</b> (ou idade) e o{' '}
+              <b>valor</b> (margem, salário…).
             </li>
             <li>O sistema reconhece as colunas sozinho — confira e ajuste se precisar.</li>
             <li>
-              Defina os critérios (padrão: <b>mínimo de {PADRAO.tempo} anos de empresa</b>) e veja quem foi aprovado e o
-              motivo de cada reprovado.
+              Confira os critérios — padrão: <b>{PADRAO.tempo} anos ou mais de empresa</b>, <b>idade de {PADRAO.idadeMin} a{' '}
+              {PADRAO.idadeMax} anos</b> e <b>valor acima de {reais(PADRAO.valor)}</b> — e veja quem foi aprovado e o motivo de
+              cada reprovado.
             </li>
             <li>
               Coloque os aprovados em <b>Contatos com uma etiqueta</b> e, em Campanhas, escolha <b>Enviar para: Etiqueta</b>.
@@ -238,6 +248,12 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
                 {mapa.nascimento === null && (
                   <Coluna rotulo="ou Idade" colunas={arq.colunas} valor={mapa.idade} mudar={(v) => setM({ idade: v })} />
                 )}
+                <Coluna
+                  rotulo="Valor (margem, salário, renda…)"
+                  colunas={arq.colunas}
+                  valor={mapa.valor}
+                  mudar={(v) => setM({ valor: v })}
+                />
               </div>
             </section>
 
@@ -309,13 +325,42 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
               )}
               {semIdade && <p className="error small">Escolha a coluna da data de nascimento (ou da idade).</p>}
 
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={usarValor}
+                  onChange={(e) => {
+                    setUsarValor(e.target.checked)
+                    mudouAlgo()
+                  }}
+                />
+                Valor mínimo
+              </label>
+              {usarValor && (
+                <div className="sep-crit">
+                  <span>acima de R$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={valorMin}
+                    onChange={(e) => {
+                      setValorMin(+e.target.value)
+                      mudouAlgo()
+                    }}
+                  />
+                  <span className="muted small">(exatamente {reais(valorMin)} não entra)</span>
+                </div>
+              )}
+              {semValor && <p className="error small">Escolha a coluna do valor (margem, salário…).</p>}
+
               <ul className="checklist sep-fixos">
                 <li className="done">Só celulares válidos para WhatsApp</li>
                 <li className="done">Cada número uma vez só</li>
               </ul>
               <button
                 className="btn primary"
-                disabled={ocupado || !mapa.telefones.length || !!semTempo || !!semIdade}
+                disabled={ocupado || !mapa.telefones.length || !!semTempo || !!semIdade || !!semValor}
                 onClick={() => separarAgora()}
               >
                 {ocupado ? 'Separando…' : res ? 'Separar de novo' : 'Separar números'}
@@ -396,6 +441,7 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
                       <th>Celular</th>
                       <th>Tempo de empresa</th>
                       <th>Idade</th>
+                      <th>Valor</th>
                       <th>Resultado</th>
                     </tr>
                   </thead>
@@ -407,6 +453,7 @@ export default function Separacao({ go }: { go: (p: Page) => void }) {
                         <td>{l.telefone ? fmtPhone(l.telefone) : '—'}</td>
                         <td>{l.tempo ?? '—'}</td>
                         <td>{l.idade ?? '—'}</td>
+                        <td>{l.valor !== undefined ? reais(l.valor) : '—'}</td>
                         <td className={l.ok ? 'ok' : 'bad'}>{l.ok ? '✓ Aprovado' : l.motivo}</td>
                       </tr>
                     ))}
