@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { basename, dirname, join } from 'path'
 import type {
   CampaignResult,
+  CampaignFormat,
   CampaignStatus,
   CampaignSummary,
   CloudTemplate,
@@ -255,6 +256,9 @@ interface CampanhaRow {
   lote_tamanho: number
   lote_pausa: number | string
   template: CloudTemplate | null
+  formato: CampaignFormat | null
+  cartao_titulo: string | null
+  cartao_descricao: string | null
   status: CampaignStatus
   observacao: string | null
   executor: string | null
@@ -287,6 +291,9 @@ const toSummary = (r: ResumoRow): CampaignSummary => ({
   batchSize: r.lote_tamanho,
   batchPause: Number(r.lote_pausa),
   template: r.template ?? undefined,
+  format: r.formato ?? 'imagem',
+  cardTitle: r.cartao_titulo ?? undefined,
+  cardDescription: r.cartao_descricao ?? undefined,
   status: r.status,
   createdAt: Date.parse(r.criado_em),
   createdBy: r.criado_por ?? undefined,

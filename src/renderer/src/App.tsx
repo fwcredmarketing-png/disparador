@@ -132,6 +132,16 @@ function Shell(props: {
         </div>
       </aside>
       <main className="content">
+        {upd.state === 'ready' && (
+          <div className="update-banner">
+            <span>
+              ⟳ Nova versão <b>v{upd.version}</b> pronta para instalar.
+            </span>
+            <button className="btn primary" onClick={() => window.api.updater.install()}>
+              Atualizar agora
+            </button>
+          </div>
+        )}
         {page === 'dashboard' && <Dashboard wa={wa} go={setPage} signal={signal} fx={fx} />}
         {page === 'conexao' && <Conexao wa={wa} />}
         {page === 'contatos' && <Contatos admin={!!auth.admin} />}

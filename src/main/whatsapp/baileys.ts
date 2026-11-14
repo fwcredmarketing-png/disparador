@@ -2,12 +2,25 @@ import { EventEmitter } from 'events'
 import { readFile, rm } from 'fs/promises'
 import { basename } from 'path'
 import QRCode from 'qrcode'
+import { nativeImage } from 'electron'
 import pino from 'pino'
 import type { WaStatus } from '@shared/types'
 import { InvalidNumberError, mimeFromPath, type SendContent, type WaProvider } from './provider'
 import { randomBetween } from '../utils'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Miniatura JPEG + dimensões da imagem, feitas pelo próprio Electron.
+ * Sem isso o Baileys precisaria do "sharp" (módulo nativo pesado) para gerar a miniatura.
+ */
+function miniatura(buf: Buffer, largura: number): { jpegThumbnail?: string; width?: number; height?: number } {
+  const img = nativeImage.createFromBuffer(buf)
+  if (img.isEmpty()) return {}
+  const { width, height } = img.getSize()
+  const thumb = img.resize({ width: Math.min(largura, width), quality: 'good' }).toJPEG(60)
+  return { jpegThumbnail: thumb.toString('base64'), width, height } // o Baileys espera base64
+}
 
 /**
  * Conexão via QR Code (WhatsApp Web multi-dispositivo) usando a biblioteca Baileys.
@@ -19,6 +32,9 @@ export class BaileysProvider extends EventEmitter implements WaProvider {
   private current: WaStatus = { provider: 'baileys', state: 'disconnected' }
   private manualClose = false
   private retries = 0
+  /** Cartões já montados (a imagem do cartão sobe uma vez e é reaproveitada por 30 min). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private cartoes = new Map<string, { preview: any; em: number }>()
 
   constructor(
     private authDir: string,
@@ -161,6 +177,44 @@ export class BaileysProvider extends EventEmitter implements WaProvider {
     this.set({ state: 'disconnected' })
   }
 
+  /**
+   * Monta a "prévia de link" do WhatsApp com a imagem da campanha em alta qualidade.
+   * O WhatsApp mostra um cartão grande (imagem + título + descrição + site); tocar abre o link.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async cartao(card: NonNullable<SendContent['card']>): Promise<any> {
+    const chave = [card.url, card.title, card.description, card.imagePath ?? ''].join('|')
+    const pronto = this.cartoes.get(chave)
+    if (pronto && Date.now() - pronto.em < 30 * 60_000) return pronto.preview
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const preview: any = {
+      'canonical-url': card.url,
+      'matched-text': card.url,
+      title: card.title,
+      description: card.description
+    }
+    if (card.imagePath) {
+      const img = nativeImage.createFromBuffer(await readFile(card.imagePath))
+      if (!img.isEmpty()) {
+        // imagem do cartão: JPEG de até 1200 px de largura (nítido no celular e leve para enviar)
+        const grande = img.getSize().width > 1200 ? img.resize({ width: 1200, quality: 'good' }) : img
+        const jpeg = grande.toJPEG(85)
+        const pequena = miniatura(jpeg, 192)
+        const b = await import('@whiskeysockets/baileys')
+        const { imageMessage } = await b.prepareWAMessageMedia(
+          { image: jpeg, ...pequena },
+          { upload: this.sock.waUploadToServer, mediaTypeOverride: 'thumbnail-link' }
+        )
+        // na prévia de link o Baileys espera os bytes (Buffer), não base64
+        preview.jpegThumbnail = pequena.jpegThumbnail ? Buffer.from(pequena.jpegThumbnail, 'base64') : undefined
+        preview.highQualityThumbnail = imageMessage
+      }
+    }
+    this.cartoes.set(chave, { preview, em: Date.now() })
+    return preview
+  }
+
   async send(phone: string, content: SendContent): Promise<void> {
     if (!this.sock || this.current.state !== 'connected') throw new Error('WhatsApp não está conectado')
 
@@ -179,11 +233,19 @@ export class BaileysProvider extends EventEmitter implements WaProvider {
       }
     }
 
+    if (content.card) {
+      // Cartão clicável: texto com o link + prévia montada por nós (imagem, título, descrição)
+      const linkPreview = await this.cartao(content.card)
+      await this.sock.sendMessage(jid, { text: content.text, linkPreview })
+      return
+    }
+
     if (content.mediaPath) {
       const buf = await readFile(content.mediaPath)
       const { mime, kind } = mimeFromPath(content.mediaPath)
       const caption = content.text || undefined
-      if (kind === 'image') await this.sock.sendMessage(jid, { image: buf, caption, mimetype: mime })
+      if (kind === 'image')
+        await this.sock.sendMessage(jid, { image: buf, caption, mimetype: mime, ...miniatura(buf, 32) })
       else if (kind === 'video') await this.sock.sendMessage(jid, { video: buf, caption, mimetype: mime })
       else if (kind === 'audio') {
         await this.sock.sendMessage(jid, { audio: buf, mimetype: mime })

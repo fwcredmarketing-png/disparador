@@ -24,7 +24,35 @@ const empty: CampaignInput = {
   delayMin: 20,
   delayMax: 45,
   batchSize: 30,
-  batchPause: 10
+  batchPause: 10,
+  format: 'imagem',
+  cardTitle: 'Simule seu crédito agora',
+  cardDescription: 'Toque aqui e faça sua simulação • FW Cred'
+}
+
+/** Domínio do link, como o WhatsApp mostra no cartão (ex.: fwcred.com.br). */
+const dominio = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return 'seu-link.com.br'
+  }
+}
+
+/** Texto do balão com o link destacado em azul, como no WhatsApp. */
+function ComLink({ texto, link }: { texto: string; link: string }) {
+  if (!link || !texto.includes(link)) return <>{texto}</>
+  const partes = texto.split(link)
+  return (
+    <>
+      {partes.map((p, i) => (
+        <span key={i}>
+          {p}
+          {i < partes.length - 1 && <span className="wa-link">{link}</span>}
+        </span>
+      ))}
+    </>
+  )
 }
 
 const ICONE: Record<MediaInfo['kind'], string> = { image: '🖼️', video: '🎬', audio: '🎵', document: '📄' }
@@ -94,6 +122,12 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
   const set = <K extends keyof CampaignInput>(k: K, v: CampaignInput[K]) => setForm((f) => ({ ...f, [k]: v }))
   const pv = useMemo(() => preview(form.message, link), [form.message, link])
   const usaLink = /\{link\}/i.test(form.message)
+  const cartao = form.format === 'cartao'
+  // no cartão, o link vai no fim do texto se a mensagem não tiver {link}
+  const textoCartao = useMemo(() => {
+    const l = link || '[link de autocontratação]'
+    return pv.includes(l) ? pv : `${pv}\n\n${l}`.trim()
+  }, [pv, link])
 
   // ---------- Anexo (imagem, vídeo, áudio ou documento) ----------
   const anexar = async (fn: () => Promise<MediaInfo | null>) => {
@@ -167,11 +201,45 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                 <button onClick={() => insert('*negrito*')}>*negrito*</button>
                 <button onClick={() => insert('_itálico_')}>_itálico_</button>
               </div>
-              {usaLink && !link && (
+              {(usaLink || cartao) && !link && (
                 <div className="tip warn small">
-                  A mensagem usa {'{link}'}, mas o link de autocontratação ainda não foi cadastrado. Peça ao administrador
-                  para cadastrar em Configurações.
+                  {cartao ? 'O cartão clicável abre o link de autocontratação' : 'A mensagem usa {link}'}, mas o link ainda
+                  não foi cadastrado. Peça ao administrador para cadastrar em Configurações.
                 </div>
+              )}
+
+              <div className="formato">
+                <span>Formato da mensagem</span>
+                <div className="tabs">
+                  <button className={!cartao ? 'active' : ''} onClick={() => set('format', 'imagem')}>
+                    🖼️ Imagem + texto
+                  </button>
+                  <button className={cartao ? 'active' : ''} onClick={() => set('format', 'cartao')}>
+                    🔗 Cartão clicável
+                  </button>
+                </div>
+              </div>
+              {cartao && (
+                <>
+                  <div className="form-row">
+                    <label>
+                      Título do cartão
+                      <input value={form.cardTitle ?? ''} maxLength={100} onChange={(e) => set('cardTitle', e.target.value)} />
+                    </label>
+                    <label>
+                      Descrição do cartão
+                      <input
+                        value={form.cardDescription ?? ''}
+                        maxLength={200}
+                        onChange={(e) => set('cardDescription', e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="tip small">
+                    Tocar no cartão abre o link de autocontratação. Pelo QR Code o WhatsApp não mostra botões; o cartão é a
+                    forma clicável que funciona. Dica: imagem <b>horizontal</b> (ex.: 1200×628) deixa o cartão maior.
+                  </div>
+                </>
               )}
 
               <div
@@ -208,8 +276,11 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   <button className="dz-empty" onClick={escolher}>
                     <span className="dz-ico">🖼️</span>
                     <span>
-                      <b>Anexar imagem</b>
-                      <small>ou vídeo, áudio, PDF • clique, arraste o arquivo para cá ou cole com Ctrl+V</small>
+                      <b>{cartao ? 'Imagem do cartão' : 'Anexar imagem'}</b>
+                      <small>
+                        {cartao ? 'JPG, PNG ou WEBP' : 'ou vídeo, áudio, PDF'} • clique, arraste o arquivo para cá ou cole com
+                        Ctrl+V
+                      </small>
                     </span>
                   </button>
                 )}
@@ -229,18 +300,37 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
             </div>
             <div>
               <div className="phone-preview">
-                <div className={`bubble ${media?.preview ? 'com-imagem' : ''}`}>
-                  {media?.preview && <img className="bubble-img" src={media.preview} alt="" />}
-                  {media && !media.preview && (
-                    <div className="media-ph">
-                      {ICONE[media.kind]} {media.name}
+                {cartao ? (
+                  <div className="bubble com-cartao">
+                    <div className="wa-card">
+                      {media?.preview && <img src={media.preview} alt="" />}
+                      <div className="wa-card-txt">
+                        <b>{form.cardTitle || 'Título do cartão'}</b>
+                        {form.cardDescription && <span>{form.cardDescription}</span>}
+                        <small>{dominio(link)}</small>
+                      </div>
                     </div>
-                  )}
-                  {pv || (!media && <span className="muted">Sua mensagem aparece aqui…</span>)}
-                  <small>12:00 ✓✓</small>
-                </div>
+                    <ComLink texto={textoCartao} link={link || '[link de autocontratação]'} />
+                    <small>12:00 ✓✓</small>
+                  </div>
+                ) : (
+                  <div className={`bubble ${media?.preview ? 'com-imagem' : ''}`}>
+                    {media?.preview && <img className="bubble-img" src={media.preview} alt="" />}
+                    {media && !media.preview && (
+                      <div className="media-ph">
+                        {ICONE[media.kind]} {media.name}
+                      </div>
+                    )}
+                    {pv ? <ComLink texto={pv} link={link} /> : !media && <span className="muted">Sua mensagem aparece aqui…</span>}
+                    <small>12:00 ✓✓</small>
+                  </div>
+                )}
               </div>
-              {media && <p className="muted small center">Com anexo, o texto vai junto como legenda.</p>}
+              {cartao ? (
+                <p className="muted small center">No WhatsApp, tocar em qualquer parte do cartão abre o link.</p>
+              ) : (
+                media && <p className="muted small center">Com anexo, o texto vai junto como legenda.</p>
+              )}
               <div className="form-row">
                 <label>
                   Intervalo mín. (s)
@@ -309,6 +399,7 @@ export default function Campanhas({ wa }: { wa: WaStatus }) {
                   <small className="muted">
                     Criada {fmtDate(c.createdAt)}
                     {c.createdBy ? ` por ${c.createdBy}` : ''} {c.tag ? `• etiqueta "${c.tag}"` : '• todos os contatos'}
+                    {c.format === 'cartao' ? ' • 🔗 cartão clicável' : ''}
                     {c.mediaName ? ` • 📎 ${c.mediaName}` : ''}
                   </small>
                 </div>

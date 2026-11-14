@@ -75,7 +75,15 @@ export class CampaignEngine extends EventEmitter {
       throw new Error('Escreva a mensagem ou anexe uma mídia')
     if (/\{link\}/i.test(input.message ?? '') && !getSettings().contractLink)
       throw new Error('A mensagem usa {link}, mas o link de autocontratação não foi cadastrado (Configurações).')
-    if (input.mediaPath) await mediaInfo(input.mediaPath) // confere tipo e tamanho antes de enviar ao Storage
+    // confere tipo e tamanho do anexo antes de enviar ao Storage
+    const anexo = input.mediaPath ? await mediaInfo(input.mediaPath) : null
+    const format = input.format === 'cartao' ? 'cartao' : 'imagem'
+    if (format === 'cartao') {
+      if (!getSettings().contractLink)
+        throw new Error('O cartão clicável abre o link de autocontratação, que ainda não foi cadastrado (Configurações).')
+      if (anexo && anexo.kind !== 'image') throw new Error('No cartão clicável o anexo precisa ser uma imagem (JPG, PNG ou WEBP).')
+      if (!input.cardTitle?.trim()) throw new Error('Escreva o título do cartão')
+    }
     const tag = input.tag?.trim() || undefined
     const list = await contacts.forCampaign(tag)
     if (!list.length) throw new Error('Nenhum contato disponível para essa campanha')
@@ -89,7 +97,10 @@ export class CampaignEngine extends EventEmitter {
       intervalo_max: Math.max(delayMin, Math.floor(Number(input.delayMax) || delayMin)),
       lote_tamanho: Math.max(0, Math.floor(Number(input.batchSize) || 0)),
       lote_pausa: Math.max(0, Number(input.batchPause) || 0),
-      template: input.template?.name ? input.template : null
+      template: input.template?.name ? input.template : null,
+      formato: format,
+      cartao_titulo: format === 'cartao' ? input.cardTitle!.trim().slice(0, 100) : null,
+      cartao_descricao: format === 'cartao' ? (input.cardDescription ?? '').trim().slice(0, 200) : null
     })
     try {
       if (input.mediaPath) {
@@ -244,7 +255,8 @@ export class CampaignEngine extends EventEmitter {
           continue
         }
         const s = getSettings()
-        if (/\{link\}/i.test(camp.mensagem) && !s.contractLink) {
+        const cartao = camp.formato === 'cartao'
+        if ((cartao || /\{link\}/i.test(camp.mensagem)) && !s.contractLink) {
           this.note = 'O link de autocontratação foi apagado nas Configurações. Cadastre de novo e continue a campanha.'
           this.stop = 'pause'
           break outer
@@ -265,6 +277,8 @@ export class CampaignEngine extends EventEmitter {
           { name: contact.nome, phone: contact.telefone },
           { link: s.contractLink }
         )
+        // no cartão, o link precisa estar no texto para o WhatsApp montar o cartão clicável
+        if (cartao && !text.includes(s.contractLink)) text = `${text}\n\n${s.contractLink}`.trim()
         if (s.appendOptOut && s.optOutText && text) text += `\n\n_${s.optOutText}_`
 
         let status: 'sent' | 'failed' | 'invalid' = 'sent'
@@ -272,7 +286,15 @@ export class CampaignEngine extends EventEmitter {
         try {
           await this.wa.send(contact.telefone, {
             text,
-            mediaPath,
+            mediaPath: cartao ? undefined : mediaPath,
+            card: cartao
+              ? {
+                  url: s.contractLink,
+                  title: camp.cartao_titulo || 'Simule agora',
+                  description: camp.cartao_descricao || '',
+                  imagePath: mediaPath
+                }
+              : undefined,
             template: camp.template?.name
               ? { ...camp.template, params: [contact.nome.split(/\s+/)[0] || contact.nome] }
               : undefined

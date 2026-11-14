@@ -74,7 +74,16 @@ export interface CampaignInput {
   batchSize: number // mensagens por lote (0 = sem lotes)
   batchPause: number // minutos de pausa entre lotes
   template?: CloudTemplate // apenas API oficial
+  /**
+   * imagem: imagem com o texto como legenda.
+   * cartao: cartão clicável (imagem + título + descrição) que abre o link de autocontratação.
+   */
+  format?: CampaignFormat
+  cardTitle?: string
+  cardDescription?: string
 }
+
+export type CampaignFormat = 'imagem' | 'cartao'
 
 export interface CampaignSummary {
   id: string
@@ -87,6 +96,9 @@ export interface CampaignSummary {
   batchSize: number
   batchPause: number
   template?: CloudTemplate
+  format: CampaignFormat
+  cardTitle?: string
+  cardDescription?: string
   status: CampaignStatus
   createdAt: number
   createdBy?: string

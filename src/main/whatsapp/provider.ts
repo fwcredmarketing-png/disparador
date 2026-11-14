@@ -5,6 +5,8 @@ export interface SendContent {
   text: string
   mediaPath?: string
   template?: CloudTemplate & { params: string[] }
+  /** Cartão clicável: o texto leva o link e o WhatsApp mostra o cartão com imagem, título e descrição. */
+  card?: { url: string; title: string; description: string; imagePath?: string }
 }
 
 export interface IncomingMessage {
