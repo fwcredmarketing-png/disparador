@@ -1,7 +1,7 @@
 {
   "name": "sistema-disparo",
   "productName": "Sistema de Disparo",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Sistema interno de disparo de mensagens no WhatsApp com interface 3D",
   "main": "./out/main/index.js",
   "author": "Equipe Interna",
