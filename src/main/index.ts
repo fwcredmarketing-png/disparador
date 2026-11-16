@@ -7,6 +7,7 @@ import { auth } from './supabase'
 import { campaigns, contacts, stats, team } from './repo'
 import { getSettings, refreshShared, saveSettings } from './settings'
 import { CampaignEngine } from './campaign'
+import { iniciarCampanhasDoFwCred } from './automatico'
 import { WhatsAppManager } from './whatsapp/manager'
 import { SmsSender } from './sms'
 import { setupUpdater } from './updater'
@@ -70,6 +71,8 @@ function bootstrap(): void {
   const wa = new WhatsAppManager()
   const sms = new SmsSender(() => getSettings().sms)
   const engine = new CampaignEngine(wa, sms)
+  // campanhas criadas pelo FW Cred começam sozinhas no computador com o WhatsApp conectado
+  iniciarCampanhasDoFwCred(engine, wa)
   win = createWindow()
   const updater = setupUpdater(() => win)
 

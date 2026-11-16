@@ -28,6 +28,10 @@ atualização automática pelo GitHub.
     balão do WhatsApp (o texto vai como legenda);
   - intervalo aleatório entre envios, lotes com pausa e limite diário;
   - pausar, continuar e cancelar, com log em tempo real e relatório em CSV.
+- **Campanhas do FW Cred**: quando um lote termina a consulta no FW Cred, ele cria aqui uma campanha pronta
+  (marcada como "FW Cred (automático)") com quem tem oferta. O computador logado, com WhatsApp conectado e sem
+  campanha em andamento, começa a enviar sozinho em até 30 segundos (`src/main/automatico.ts`). Os "SAIR" daqui
+  voltam para o opt-out do FW Cred.
 - **Descadastro automático**: quem responder "SAIR" ou "PARAR" deixa de receber (as palavras são configuráveis).
 - **Equipe**: login por e-mail e senha; contatos, campanhas e relatórios são compartilhados entre todos os computadores.
   Uma trava garante que cada campanha seja enviada por um computador só; se ele parar de responder, outro pode assumir.

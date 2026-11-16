@@ -350,6 +350,9 @@ export interface PendingSend {
   nome: string
 }
 
+/** Marca das campanhas criadas pelo FW Cred (sistema de lotes); o disparador inicia essas sozinho. */
+export const CRIADOR_FWCRED = 'FW Cred (automático)'
+
 export const campaigns = {
   async list(): Promise<CampaignSummary[]> {
     const rows = await q<ResumoRow[]>(
@@ -391,6 +394,19 @@ export const campaigns = {
   async remove(id: string): Promise<void> {
     await q(db().from('campanhas').delete().eq('id', id))
     await media.removeFolder(id).catch(() => {})
+  },
+
+  /** Próxima campanha do FW Cred esperando para começar (a mais antiga), ignorando as que já falharam aqui. */
+  async nextAutomatic(ignorar: Set<string>): Promise<string | null> {
+    const rows = await q<{ id: string }[]>(
+      db().from('campanhas').select('id').eq('status', 'draft').eq('criado_por', CRIADOR_FWCRED).order('criado_em').limit(20)
+    )
+    return (rows ?? []).find((r) => !ignorar.has(r.id))?.id ?? null
+  },
+
+  /** Anota na campanha por que ela não pôde começar sozinha (aparece na lista de campanhas). */
+  async setNote(id: string, texto: string): Promise<void> {
+    await q(db().from('campanhas').update({ observacao: texto.slice(0, 300) }).eq('id', id))
   },
 
   /** Trava: só um computador envia cada campanha. */
